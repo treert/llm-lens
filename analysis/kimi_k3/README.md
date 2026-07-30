@@ -15,6 +15,8 @@
 | --- | --- |
 | `inspect_weights.py` | 只读解析 `model.safetensors.index.json`,输出权重分组统计总览 |
 
+前置条件:已在仓库根目录执行 `pip install -e .`(见根目录 README 的快速开始)。
+
 所有脚本默认从 `config/models.local.yaml` 读取模型路径,可用 `--model-dir` 覆盖:
 
 ```powershell

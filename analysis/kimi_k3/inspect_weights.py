@@ -12,14 +12,10 @@
 import argparse
 import json
 import re
-import sys
 from collections import Counter
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-
-from llm_lens import get_model_dir  # noqa: E402
-from llm_lens.cli import add_model_args  # noqa: E402
+from llm_lens import get_model_dir
+from llm_lens.cli import add_model_args
 
 
 def normalize_name(name: str) -> str:

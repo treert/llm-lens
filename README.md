@@ -26,6 +26,7 @@ LLM 的前向计算大部分是三类操作:**矩阵投影、向量加和、向�
 
 ```
 llm-lens/
+├── pyproject.toml              # 打包声明 + 依赖列表(pip install -e . 一键安装)
 ├── config/
 │   └── models.example.yaml   # 模型路径配置模板(复制为 models.local.yaml 使用,不入库)
 ├── docs/                     # 模型结构笔记、原理层面的学习笔记
@@ -43,10 +44,10 @@ llm-lens/
 ## 快速开始
 
 ```powershell
-# 1. 创建虚拟环境并安装依赖
+# 1. 创建虚拟环境,安装依赖 + llm_lens 本地包(可编辑安装,改代码立即生效)
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -e .
 
 # 2. 配置本机模型路径(复制模板后修改,models.local.yaml 不会提交)
 copy config\models.example.yaml config\models.local.yaml
@@ -58,6 +59,12 @@ python analysis/kimi_k3/inspect_weights.py --model-dir G:/llm-models/Kimi-K3
 ```
 
 路径解析优先级:命令行 `--model-dir` > `config/models.local.yaml` 中对应模型。
+
+补充:
+
+- 想装进全局环境(免激活 venv):不激活,直接执行 `pip install -e .` 即可,依赖会一并装入全局。
+- 可选:需要 torch 时(反量化等场景更方便)安装 CPU 版:
+  `pip install torch --index-url https://download.pytorch.org/whl/cpu`
 
 ## 硬性规则
 

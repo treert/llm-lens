@@ -13,7 +13,7 @@ analysis/
   本目录的脚本只做"该模型特有"的部分:权重命名解析、层类型判断、反量化等。
 - 脚本对模型权重目录**只读**,不得在权重目录内写入任何文件。
 - 分析输出(图、中间结果)默认写到仓库根目录的 `output/`(已被 git 忽略)。
-- 脚本开头需要把 `src/` 加入模块搜索路径,模板如下:
+- 仓库根目录执行过一次 `pip install -e .` 后,`llm_lens` 即可直接 import,无需处理 sys.path。新脚本模板:
 
 ```python
 """脚本功能一句话说明。
@@ -22,13 +22,8 @@ analysis/
     python analysis/<model_name>/xxx.py [--model <配置中的模型名> | --model-dir <路径>]
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-
 import argparse
 
-from llm_lens import get_model_dir  # noqa: E402
-from llm_lens.cli import add_model_args  # noqa: E402
+from llm_lens import get_model_dir
+from llm_lens.cli import add_model_args
 ```

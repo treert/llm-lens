@@ -1,0 +1,33 @@
+# 打包声明 + 依赖列表
+# 安装(依赖 + llm_lens 本地包,可编辑模式,改代码立即生效):
+#   pip install -e .
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-lens"
+version = "0.1.0"
+description = "从原理层面 + 开源权重实证理解 LLM 的分析工具库"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # 数值计算
+    "numpy>=1.26",
+    # 读取 safetensors 权重
+    "safetensors>=0.4",
+    # 本地配置文件
+    "PyYAML>=6.0",
+    # bfloat16 等扩展 dtype 的 numpy 支持(K3 非量化权重为 bf16)
+    "ml_dtypes>=0.4",
+    # 可视化(夹角分布、奇异值谱等)
+    "matplotlib>=3.8",
+]
+
+# 可选:torch(CPU 版即可),方便处理 bf16 / 反量化 / 矩阵运算
+# 体积较大,按需自行安装:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+[tool.setuptools.packages.find]
+where = ["src"]
