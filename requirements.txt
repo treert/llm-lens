@@ -1,0 +1,14 @@
+# 数值计算
+numpy>=1.26
+# 读取 safetensors 权重
+safetensors>=0.4
+# 本地配置文件
+PyYAML>=6.0
+# bfloat16 等扩展 dtype 的 numpy 支持(K3 非量化权重为 bf16)
+ml_dtypes>=0.4
+# 可视化(夹角分布、奇异值谱等)
+matplotlib>=3.8
+
+# 可选:torch(CPU 版即可),方便处理 bf16 / 反量化 / 矩阵运算
+# 体积较大,按需自行安装:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu

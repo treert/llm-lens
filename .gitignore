@@ -1,0 +1,22 @@
+# 临时目录
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 本地配置(含本机模型路径,不入库)
+*.local.yaml
+.env
+
+# 分析输出(图表、中间结果)
+output/
+
+# IDE / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

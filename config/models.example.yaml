@@ -1,0 +1,21 @@
+# 模型路径配置模板
+#
+# 使用方式:
+#   1. 复制本文件为 models.local.yaml(与模板同目录)
+#   2. 把 path 改成本机实际的权重目录
+#   3. models.local.yaml 已被 .gitignore 忽略,不会提交到 git
+#
+# 优先级:命令行参数 --model-dir > 本文件中的配置
+#
+# 注意:分析脚本对所有模型权重目录只读,请勿将 path 指向可写的工作目录。
+
+default_model: kimi_k3
+
+models:
+  kimi_k3:
+    # 本机 Kimi-K3 权重目录(示例,请按实际修改)
+    path: "G:/llm-models/Kimi-K3"
+
+  # 后续新增模型时,在此追加,例如:
+  # qwen3:
+  #   path: "D:/llm-models/Qwen3-0.6B"
