@@ -63,8 +63,10 @@ python analysis/kimi_k3/inspect_weights.py --model-dir G:/llm-models/Kimi-K3
 补充:
 
 - 想装进全局环境(免激活 venv):不激活,直接执行 `pip install -e .` 即可,依赖会一并装入全局。
-- 可选:需要 torch 时(反量化等场景更方便)安装 CPU 版:
+- 可选:需要 torch 时(反量化等场景更方便),**在 venv 内**安装 CPU 版:
   `pip install torch --index-url https://download.pytorch.org/whl/cpu`
+  注意:本机全局环境已有 GPU 版 torch(ctranslate2 依赖),切勿在全局执行此命令;
+  用全局 Python 跑分析时,GPU 版不调用 CUDA 与 CPU 版等价,可直接使用。
 
 ## 硬性规则
 

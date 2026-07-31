@@ -12,7 +12,9 @@
 - Python 3.10+;依赖与打包统一由根目录 `pyproject.toml` 管理(没有 requirements.txt)
 - 安装:`pip install -e .`(venv 或全局环境均可)
 - 新增/修改依赖:改 `pyproject.toml` 的 `dependencies`,然后重跑 `pip install -e .`
-- torch 不在默认依赖中,需要时单独装 CPU 版
+- torch 不在默认依赖中,按需安装,但**必须注意环境隔离**:
+  - 全局环境已有 GPU 版 torch(2.9.0+cu128,ctranslate2 依赖自动带入),**禁止在全局环境重装/替换/卸载 torch**(CPU 版与 GPU 版同包名,会互相覆盖);GPU 版不调用 CUDA 时与 CPU 版用法等价,可直接用于分析
+  - 项目 venv(`.venv/`)与全局隔离,如需 torch 可在 venv 内装 CPU 版:`pip install torch --index-url https://download.pytorch.org/whl/cpu`
 
 ## 代码放置规则
 
