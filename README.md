@@ -31,7 +31,7 @@ llm-lens/
 │   └── models.example.yaml   # 模型路径配置模板(复制为 models.local.yaml 使用,不入库)
 ├── docs/                     # 模型结构笔记、原理层面的学习笔记
 │   └── kimi-k3.md
-├── src/llm_lens/             # 模型无关的通用分析工具库(配置加载、向量指标等)
+├── py-src/llm_lens/          # 模型无关的通用分析工具库(Python;配置加载、向量指标等)
 ├── analysis/                 # 依赖具体模型结构的分析脚本,一个模型一个子目录
 │   └── kimi_k3/
 ├── tmp/                      # 临时文件(git 忽略)
@@ -39,7 +39,7 @@ llm-lens/
 ```
 
 **约定:依赖某个模型结构的脚本,必须放在 `analysis/<模型名>/` 下;通用逻辑下沉到
-`src/llm_lens/`。**
+`py-src/llm_lens/`。**
 
 ## 快速开始
 

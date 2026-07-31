@@ -30,4 +30,4 @@ dependencies = [
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["py-src"]
