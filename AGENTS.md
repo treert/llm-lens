@@ -32,13 +32,11 @@
 3. `config/*.local.yaml`、`tmp/`、`output/`、`*.egg-info/` 不入库
 4. 分析产生的图和中间结果写到 `output/`,不要散落在仓库各处
 
-## 技术要点(Kimi-K3)
+## 文档索引
 
-- 权重为 safetensors,96 个分片;索引:`model.safetensors.index.json`
-- 路由专家是 mxfp4 量化(`weight_packed`/`weight_scale`,group_size=32),分析前需反量化;
-  其余权重(词嵌入、注意力投影、LM Head、路由器、共享专家、视觉塔)是 bf16,
-  用 safetensors + numpy(ml_dtypes)可直接读取
-- 模型结构细节与权重命名规则见 `docs/kimi-k3.md`,写 K3 脚本前先读它
+- 各模型的结构笔记(架构参数、权重命名、量化格式):`docs/<模型名>.md`,如 `docs/kimi-k3.md`
+- 模型专属脚本的说明:`analysis/<模型名>/README.md`
+- 写某个模型的分析脚本前,先读上面两份对应文档
 
 ## 协作风格
 
