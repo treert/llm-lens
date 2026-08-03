@@ -160,7 +160,8 @@
     const xLo = twoSided ? 0 : Math.min(0, q001 * 1.1);
     const xHi = Math.min(1, Math.max(q999, 6 / Math.sqrt(N)) * 1.05);
 
-    const samples = 400;
+    // 大 K 时密度峰极窄（宽度 ~1/(2N·maxρ)），采样点要足够密才能画光滑
+    const samples = 1200;
     const maxDotGumbel = [];
     const maxDotBeta = [];
     const singlePair = [];

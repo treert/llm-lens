@@ -90,6 +90,13 @@ f_{\max}(t) = 2M\,\bigl(2F(t)-1\bigr)^{M-1} g(t) \quad\text{（双侧）}$$
 
 分位数通过对 CDF 二分求逆得到（`maxDotQuantileBeta`）。
 
+**实现细节（大 K 精度）**：峰值处 $1-F(t) \sim 1/M$，K 很大时可小至 $10^{-16}$，
+接近 float64 机器精度（$\varepsilon \approx 2.2\times10^{-16}$）。此时直接算
+`1 - half` 会把 $1-F$ 量化成 $\varepsilon$ 的整数倍，再被 $(M-1)\ln F$ 放大成
+密度曲线的锯齿。因此 `theory.js` 全程在对数域计算：
+$\ln F = \texttt{log1p}(-\text{half})$（half 由不完全 beta 直接算出，不经 1−x 舍入），
+CDF、密度、分位数均基于此。
+
 **为什么它是主曲线**：
 
 - K=2 时**精确**（M=1，退化为单对 beta）；

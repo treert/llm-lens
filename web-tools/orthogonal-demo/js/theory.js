@@ -146,32 +146,58 @@
   }
 
   /**
+   * 单对点乘的半尾概率：t ≥ 0 时 P(ρ > t)，t < 0 时 P(ρ ≤ t)。
+   * 由 ρ² ~ Beta(1/2, (N-1)/2) 及对称性，均等于 ½·I_{1−t²}((N−1)/2, 1/2)。
+   * 注意：该值本身由不完全 beta 直接算出，精度不受 1−F 舍入影响。
+   */
+  function pairDotTailHalf(t, N) {
+    return 0.5 * regIncBeta(1 - t * t, (N - 1) / 2, 0.5);
+  }
+
+  /**
    * 单对点乘的精确 CDF：F(t) = P(ρ ≤ t)。
-   * 由 ρ² ~ Beta(1/2, (N-1)/2) 及对称性：
    *   t ≥ 0: F(t) = 1 − ½·I_{1−t²}((N−1)/2, 1/2)
    *   t < 0: F(t) = ½·I_{1−t²}((N−1)/2, 1/2)
    */
   function pairDotCDF(t, N) {
     if (t <= -1) return 0;
     if (t >= 1) return 1;
-    const half = 0.5 * regIncBeta(1 - t * t, (N - 1) / 2, 0.5);
+    const half = pairDotTailHalf(t, N);
     return t >= 0 ? 1 - half : half;
   }
 
   /**
-   * max ρ 的 CDF（独立性近似）：P(max ≤ t) ≈ F(t)^M。
-   * 双侧：P(max|ρ| ≤ t) ≈ (2F(t) − 1)^M（t ≥ 0）。
+   * 单对点乘的对数 CDF：log F(t)。
+   * t ≥ 0 时用 log1p(−half) 计算 log(1−half)：当 half ~ 1/M ~ 1e-16 接近
+   * 机器精度时，直接算 1−half 会被量化成 eps 的整数倍，再被 (M−1)·logF
+   * 放大成 O(1) 的密度抖动；log1p 保留全部有效数字（大 K 必需）。
+   */
+  function pairDotLogCDF(t, N) {
+    if (t <= -1) return -Infinity;
+    if (t >= 1) return 0;
+    const half = pairDotTailHalf(t, N);
+    return t >= 0 ? Math.log1p(-half) : Math.log(half);
+  }
+
+  /**
+   * max ρ 的对数 CDF（独立性近似）：log P(max ≤ t) ≈ M·logF(t)。
+   * 双侧：log P(max|ρ| ≤ t) ≈ M·log(2F(t) − 1)（t > 0），
+   * 其中 2F−1 = 1−2·half 同样用 log1p。
    * K=2 时精确；大 K 时渐近等价于 Gumbel 形式。
    */
-  function maxDotCDFBeta(t, N, K, twoSided) {
+  function maxDotLogCDFBeta(t, N, K, twoSided) {
     const M = (K * (K - 1)) / 2;
-    const F = pairDotCDF(t, N);
     if (twoSided) {
-      if (t <= 0) return 0;
-      const v = 2 * F - 1;
-      return v <= 0 ? 0 : Math.exp(M * Math.log(v));
+      if (t <= 0) return -Infinity;
+      const half = pairDotTailHalf(t, N);
+      return M * Math.log1p(-2 * half);
     }
-    return F <= 0 ? 0 : Math.exp(M * Math.log(F));
+    return M * pairDotLogCDF(t, N);
+  }
+
+  /** max ρ 的 CDF（F^M 形式） */
+  function maxDotCDFBeta(t, N, K, twoSided) {
+    return Math.exp(maxDotLogCDFBeta(t, N, K, twoSided));
   }
 
   /**
@@ -181,28 +207,30 @@
     const M = (K * (K - 1)) / 2;
     const g = pairDotDensity(t, N);
     if (g === 0) return 0;
-    const F = pairDotCDF(t, N);
     let logv;
     if (twoSided) {
       if (t <= 0) return 0;
-      const v = 2 * F - 1;
-      if (v <= 0) return 0;
-      logv = Math.log(2 * M) + (M - 1) * Math.log(v) + Math.log(g);
+      const half = pairDotTailHalf(t, N);
+      logv =
+        Math.log(2 * M) +
+        ((M - 1) / M) * (M * Math.log1p(-2 * half)) +
+        Math.log(g);
     } else {
-      if (F <= 0) return 0;
-      logv = Math.log(M) + (M - 1) * Math.log(F) + Math.log(g);
+      logv =
+        Math.log(M) + ((M - 1) / M) * maxDotLogCDFBeta(t, N, K, false) + Math.log(g);
     }
     if (!isFinite(logv)) return 0;
     return Math.exp(logv);
   }
 
-  /** max ρ 的分位数（F^M 形式，二分求逆） */
+  /** max ρ 的分位数（F^M 形式，对数域二分求逆） */
   function maxDotQuantileBeta(p, N, K, twoSided) {
+    const logp = Math.log(p);
     let lo = twoSided ? 0 : -1;
     let hi = 1;
     for (let i = 0; i < 80; i++) {
       const mid = (lo + hi) / 2;
-      if (maxDotCDFBeta(mid, N, K, twoSided) < p) lo = mid;
+      if (maxDotLogCDFBeta(mid, N, K, twoSided) < logp) lo = mid;
       else hi = mid;
     }
     return (lo + hi) / 2;
@@ -218,6 +246,8 @@
     centering,
     regIncBeta,
     pairDotCDF,
+    pairDotLogCDF,
+    maxDotLogCDFBeta,
     maxDotCDFBeta,
     maxDotDensityBeta,
     maxDotQuantileBeta,
