@@ -23,6 +23,31 @@ header h1 {
   line-height: 1.6;
 }
 
+.legend-note {
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.note-blue {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.note-yellow {
+  color: #a16207;
+  background: #fefce8;
+}
+
+.note-orange {
+  color: #c2410c;
+  background: #fff7ed;
+}
+
+.note-gray {
+  color: #57606a;
+  background: #f6f8fa;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;

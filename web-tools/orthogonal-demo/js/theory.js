@@ -10,8 +10,6 @@
 (function (global) {
   'use strict';
 
-  const EULER_GAMMA = 0.5772156649015329; // Euler–Mascheroni 常数
-
   // 极值分布常数 kappa：单侧 max ρ 为 1/(4√(2π))；双侧 max|ρ| 为其两倍
   function kappa(twoSided) {
     return twoSided
@@ -98,26 +96,130 @@
     return 2 * Math.sqrt(Math.log(K) / N);
   }
 
+  // ================= 方案 A：F_beta^M 近似（全 K 范围） =================
+
+  /** 不完全 beta 的连分式部分（Numerical Recipes betacf） */
+  function betaCF(a, b, x) {
+    const MAXIT = 200;
+    const EPS = 3e-14;
+    const FPMIN = 1e-300;
+    const qab = a + b;
+    const qap = a + 1;
+    const qam = a - 1;
+    let c = 1;
+    let d = 1 - (qab * x) / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= MAXIT; m++) {
+      const m2 = 2 * m;
+      let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+      d = 1 + aa * d;
+      if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c;
+      if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      h *= d * c;
+      aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+      d = 1 + aa * d;
+      if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c;
+      if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if (Math.abs(del - 1) < EPS) break;
+    }
+    return h;
+  }
+
+  /** 正则化不完全 beta 函数 I_x(a,b) */
+  function regIncBeta(x, a, b) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    const bt = Math.exp(
+      lgamma(a + b) - lgamma(a) - lgamma(b) +
+        a * Math.log(x) + b * Math.log(1 - x)
+    );
+    if (x < (a + 1) / (a + b + 2)) return (bt * betaCF(a, b, x)) / a;
+    return 1 - (bt * betaCF(b, a, 1 - x)) / b;
+  }
+
   /**
-   * Gumbel 修正的近似均值：E[max ρ] ≈ sqrt((a + 2(γ + ln κ)) / N)。
-   * 标准 Gumbel（尺度 2）的均值为 E[W] = 2(γ + ln κ)。
-   * 注意 E[max ρ] ≠ sqrt(E[(max ρ)²])，此处取后者作为近似，仅作参考。
+   * 单对点乘的精确 CDF：F(t) = P(ρ ≤ t)。
+   * 由 ρ² ~ Beta(1/2, (N-1)/2) 及对称性：
+   *   t ≥ 0: F(t) = 1 − ½·I_{1−t²}((N−1)/2, 1/2)
+   *   t < 0: F(t) = ½·I_{1−t²}((N−1)/2, 1/2)
    */
-  function gumbelMeanApprox(N, K, twoSided) {
-    const kp = kappa(twoSided);
-    const v = (centering(K) + 2 * (EULER_GAMMA + Math.log(kp))) / N;
-    return v > 0 ? Math.sqrt(v) : 0;
+  function pairDotCDF(t, N) {
+    if (t <= -1) return 0;
+    if (t >= 1) return 1;
+    const half = 0.5 * regIncBeta(1 - t * t, (N - 1) / 2, 0.5);
+    return t >= 0 ? 1 - half : half;
+  }
+
+  /**
+   * max ρ 的 CDF（独立性近似）：P(max ≤ t) ≈ F(t)^M。
+   * 双侧：P(max|ρ| ≤ t) ≈ (2F(t) − 1)^M（t ≥ 0）。
+   * K=2 时精确；大 K 时渐近等价于 Gumbel 形式。
+   */
+  function maxDotCDFBeta(t, N, K, twoSided) {
+    const M = (K * (K - 1)) / 2;
+    const F = pairDotCDF(t, N);
+    if (twoSided) {
+      if (t <= 0) return 0;
+      const v = 2 * F - 1;
+      return v <= 0 ? 0 : Math.exp(M * Math.log(v));
+    }
+    return F <= 0 ? 0 : Math.exp(M * Math.log(F));
+  }
+
+  /**
+   * max ρ 的密度（F^M 求导）：单侧 M·F^{M−1}·g；双侧 2M·(2F−1)^{M−1}·g。
+   */
+  function maxDotDensityBeta(t, N, K, twoSided) {
+    const M = (K * (K - 1)) / 2;
+    const g = pairDotDensity(t, N);
+    if (g === 0) return 0;
+    const F = pairDotCDF(t, N);
+    let logv;
+    if (twoSided) {
+      if (t <= 0) return 0;
+      const v = 2 * F - 1;
+      if (v <= 0) return 0;
+      logv = Math.log(2 * M) + (M - 1) * Math.log(v) + Math.log(g);
+    } else {
+      if (F <= 0) return 0;
+      logv = Math.log(M) + (M - 1) * Math.log(F) + Math.log(g);
+    }
+    if (!isFinite(logv)) return 0;
+    return Math.exp(logv);
+  }
+
+  /** max ρ 的分位数（F^M 形式，二分求逆） */
+  function maxDotQuantileBeta(p, N, K, twoSided) {
+    let lo = twoSided ? 0 : -1;
+    let hi = 1;
+    for (let i = 0; i < 80; i++) {
+      const mid = (lo + hi) / 2;
+      if (maxDotCDFBeta(mid, N, K, twoSided) < p) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
   }
 
   global.Theory = {
-    EULER_GAMMA,
     kappa,
     lgamma,
     pairDotDensity,
     maxDotDensity,
     maxDotQuantile,
     firstOrderMean,
-    gumbelMeanApprox,
     centering,
+    regIncBeta,
+    pairDotCDF,
+    maxDotCDFBeta,
+    maxDotDensityBeta,
+    maxDotQuantileBeta,
   };
 })(window);

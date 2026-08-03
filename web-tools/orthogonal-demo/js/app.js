@@ -51,17 +51,21 @@
     const samples = 160;
     const firstOrder = [];
     const gumbelMedian = [];
+    const betaMedian = [];
     for (let i = 0; i <= samples; i++) {
       const k = Math.exp(
         Math.log(2) + (i / samples) * (Math.log(N) - Math.log(2))
       );
       firstOrder.push([k, T.firstOrderMean(N, k)]);
       gumbelMedian.push([k, T.maxDotQuantile(0.5, N, k, twoSided)]);
+      betaMedian.push([k, T.maxDotQuantileBeta(0.5, N, k, twoSided)]);
     }
 
     chart1.setOption(
       {
-        title: { text: '最大点乘的期望水平（N = ' + N + '）', left: 'center', textStyle: { fontSize: 14 } },
+        title: { text: '最大点乘的中位数水平（N = ' + N + '）', left: 'center', textStyle: { fontSize: 14 } },
+        // 系列顺序：一阶近似(橙)、F^M(蓝)、Gumbel(黄)
+        color: ['#ff7f0e', '#2563eb', '#eab308'],
         tooltip: {
           trigger: 'axis',
           valueFormatter: (v) => (typeof v === 'number' ? v.toFixed(4) : v),
@@ -79,11 +83,11 @@
             data: firstOrder,
           },
           {
-            name: 'Gumbel 中位数',
+            name: 'F^M 中位数（beta 幂次，全 K 适用）',
             type: 'line',
             showSymbol: false,
             smooth: true,
-            data: gumbelMedian,
+            data: betaMedian,
             markLine: {
               silent: true,
               symbol: 'none',
@@ -91,6 +95,14 @@
               label: { formatter: 'K = ' + K, position: 'insideEndTop' },
               data: [{ xAxis: K }],
             },
+          },
+          {
+            name: 'Gumbel 中位数（渐近）',
+            type: 'line',
+            showSymbol: false,
+            smooth: true,
+            lineStyle: { type: 'dashed' },
+            data: gumbelMedian,
           },
         ],
       },
@@ -102,16 +114,24 @@
   function renderChart2() {
     const { N, K, twoSided } = state;
 
-    // 横轴上限：Gumbel 0.999 分位数与单对密度可见范围（≈6σ, σ≈1/√N）取大者
-    const q999 = T.maxDotQuantile(0.999, N, K, twoSided);
+    // 横轴范围：覆盖 F^M 分布的 [0.1%, 99.9%] 分位区间与单对密度可见范围（≈6σ）
+    const q001 = T.maxDotQuantileBeta(0.001, N, K, twoSided);
+    const q999 = Math.max(
+      T.maxDotQuantileBeta(0.999, N, K, twoSided),
+      T.maxDotQuantile(0.999, N, K, twoSided)
+    );
+    // 双侧 max|ρ| 无负支撑；单侧小 K 时负半轴有可观质量，自动扩展
+    const xLo = twoSided ? 0 : Math.min(0, q001 * 1.1);
     const xHi = Math.min(1, Math.max(q999, 6 / Math.sqrt(N)) * 1.05);
 
-    const samples = 320;
-    const maxDot = [];
+    const samples = 400;
+    const maxDotGumbel = [];
+    const maxDotBeta = [];
     const singlePair = [];
     for (let i = 0; i <= samples; i++) {
-      const r = (i / samples) * xHi;
-      maxDot.push([r, T.maxDotDensity(r, N, K, twoSided)]);
+      const r = xLo + (i / samples) * (xHi - xLo);
+      maxDotGumbel.push([r, T.maxDotDensity(r, N, K, twoSided)]);
+      maxDotBeta.push([r, T.maxDotDensityBeta(r, N, K, twoSided)]);
       // 双侧模式下对比基线应为单个 |ρ| 的密度：负半轴折叠到正半轴，高度翻倍
       const g = T.pairDotDensity(r, N);
       singlePair.push([r, twoSided ? 2 * g : g]);
@@ -124,22 +144,32 @@
           left: 'center',
           textStyle: { fontSize: 14 },
         },
+        // 系列顺序：F^M(蓝)、Gumbel(黄)、单对(绿)
+        color: ['#2563eb', '#eab308', '#2ca02c'],
         tooltip: {
           trigger: 'axis',
           valueFormatter: (v) => (typeof v === 'number' ? v.toFixed(3) : v),
         },
         legend: { bottom: 0 },
         grid: { left: 60, right: 30, top: 50, bottom: 60 },
-        xAxis: { type: 'value', name: 'ρ（点乘）', min: 0, max: xHi },
+        xAxis: { type: 'value', name: 'ρ（点乘）', min: xLo, max: xHi },
         yAxis: { type: 'value', name: '密度', min: 0 },
         series: [
+          {
+            name: 'max ρ 密度（F^M，beta 幂次）',
+            type: 'line',
+            showSymbol: false,
+            smooth: true,
+            areaStyle: { opacity: 0.08 },
+            data: maxDotBeta,
+          },
           {
             name: 'max ρ 密度（Gumbel 渐近）',
             type: 'line',
             showSymbol: false,
             smooth: true,
-            areaStyle: { opacity: 0.08 },
-            data: maxDot,
+            lineStyle: { type: 'dashed' },
+            data: maxDotGumbel,
           },
           {
             name: twoSided
@@ -155,15 +185,15 @@
       { notMerge: true }
     );
 
-    const med = T.maxDotQuantile(0.5, N, K, twoSided);
-    const meanApprox = T.gumbelMeanApprox(N, K, twoSided);
+    const med = T.maxDotQuantileBeta(0.5, N, K, twoSided);
+    const medGumbel = T.maxDotQuantile(0.5, N, K, twoSided);
     const first = T.firstOrderMean(N, K);
-    const angleDeg = ((Math.acos(Math.min(1, med)) * 180) / Math.PI).toFixed(2);
-    els.stats.textContent =
-      'max ρ：中位数 ≈ ' + med.toFixed(4) +
-      '，近似均值 ≈ ' + meanApprox.toFixed(4) +
-      '，一阶近似 ≈ ' + first.toFixed(4) +
-      '；对应最小夹角 ≈ ' + angleDeg + '°。' +
+    const angleDeg = ((Math.acos(Math.max(-1, Math.min(1, med))) * 180) / Math.PI).toFixed(2);
+    els.stats.innerHTML =
+      'max ρ 中位数：<strong class="legend-note note-blue">F^M ≈ ' + med.toFixed(4) + '</strong>' +
+      '，<strong class="legend-note note-yellow">Gumbel ≈ ' + medGumbel.toFixed(4) + '</strong>' +
+      '；<strong class="legend-note note-orange">一阶近似（众数口径）≈ ' + first.toFixed(4) + '</strong>' +
+      '；对应最小夹角 ≈ <strong class="legend-note note-gray">' + angleDeg + '°</strong>。' +
       '单对 ρ 的散布 σ ≈ 1/√N ≈ ' + (1 / Math.sqrt(N)).toFixed(4) + '。';
   }
 

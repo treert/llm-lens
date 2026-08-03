@@ -2,13 +2,25 @@
 
 交互式网页工具，演示"高维空间中随机向量近乎正交"的定量规律：
 
-- **曲线 1**：固定 N，max ρ（两两点乘最大值 = 最小夹角的余弦）随 K 变化的期望水平，
-  对比一阶近似 `2√(lnK/N)` 与 Gumbel 极值修正（中位数）。
-- **曲线 2**：给定 (N, K)，max ρ 的近似密度（Gumbel 渐近），叠加单对点乘的精确
-  beta 密度作对比。
+- **曲线 1**：固定 N，max ρ（两两点乘最大值 = 最小夹角的余弦）随 K 变化的中位数水平，
+  三条线对比：F^M（beta 幂次，全 K 适用）、Gumbel 渐近、一阶近似 `2√(lnK/N)`。
+- **曲线 2**：给定 (N, K)，max ρ 的密度曲线（F^M 与 Gumbel 渐近两条），叠加单对点乘的
+  精确 beta 密度作对比；单侧且 K 小时横轴自动扩展到负半轴。
 
 理论来源：Cai, Fan, Jiang, *Distributions of Angles in Random Packing on Spheres*,
 JMLR 14 (2013), arXiv:1306.0256。
+
+## 各曲线的准确范围（速览）
+
+| 曲线 | 颜色/线型 | 近似层级 | 小 K（个位数） | 大 K 精度 | 共同前提 |
+|---|---|---|---|---|---|
+| **F^M（beta 幂次）** | 蓝实线 | 有限 K 近似（独立性假设） | **K=2 精确**；K≥3 误差 ~1~2% | ~1% | 无渐近要求（有限 N、K 即可用） |
+| **Gumbel 渐近** | 黄虚线 | 极值极限定理 | 明显失真 | K ≳ 20 后 ~2% 以内 | $\ln K = o(N)$ |
+| **一阶近似 $2\sqrt{\ln K/N}$** | 橙实线 | 只留指数主项 | 严重失真（K=2 高估一倍多） | 系统性**偏高 15~25%**，且收敛极慢 | $\ln K = o(N)$ |
+
+要点：**要精确数字看蓝线（F^M），要量级直觉看橙线（一阶近似），黄线（Gumbel）
+是两者的渐近桥梁**——拖动 K 滑杆可看到黄线逐渐贴合蓝线，直观演示极限定理的收敛。
+细节见 §5。
 
 ## 用法
 
@@ -53,7 +65,36 @@ $$g(\rho) = \frac{\Gamma(N/2)}{\sqrt{\pi}\,\Gamma\!\left(\frac{N-1}{2}\right)}\,
 - 实现细节（`theory.js`）：归一化常数用 Lanczos 近似的 `lgamma` 在对数域计算，
   避免 N 很大时 $\Gamma$ 函数溢出。
 
-### 2. 极值的渐近分布（Gumbel）
+### 2. F^M（beta 幂次）近似：全 K 范围的主曲线
+
+把 M 对点乘当作相互独立（实际只是两两独立，见 §3 开头的说明），则
+
+$$P(\max\rho \le t) \approx F_{\mathrm{beta}}(t)^M, \qquad
+P(\max|\rho| \le t) \approx \bigl(2F_{\mathrm{beta}}(t)-1\bigr)^M \;(t\ge 0)$$
+
+其中 $F_{\mathrm{beta}}$ 是 §1 精确分布的 CDF，由 $\rho^2 \sim \mathrm{Beta}(\tfrac12, \tfrac{N-1}{2})$
+及对称性得
+
+$$F_{\mathrm{beta}}(t) = \begin{cases} 1 - \tfrac12 I_{1-t^2}\!\left(\tfrac{N-1}{2}, \tfrac12\right) & t \ge 0 \\[4pt]
+\tfrac12 I_{1-t^2}\!\left(\tfrac{N-1}{2}, \tfrac12\right) & t < 0 \end{cases}$$
+
+$I_x(a,b)$ 为正则化不完全 beta 函数（`theory.js` 用连分式实现）。密度由求导得到：
+
+$$f_{\max}(t) = M\,F(t)^{M-1} g(t) \quad\text{（单侧）}, \qquad
+f_{\max}(t) = 2M\,\bigl(2F(t)-1\bigr)^{M-1} g(t) \quad\text{（双侧）}$$
+
+分位数通过对 CDF 二分求逆得到（`maxDotQuantileBeta`）。
+
+**为什么它是主曲线**：
+
+- K=2 时**精确**（M=1，退化为单对 beta）；
+- 小 K 时与蒙特卡洛高度吻合（实测 K=2~128 中位数误差均在 1~2% 以内）；
+- 大 K 时渐近等价于 §3 的 Gumbel 形式——Gumbel 本就是它的极限，两条线在图上
+  随 K 增大逐渐贴合，本身就是对极限定理的直观演示；
+- 天然支持负半轴：单侧小 K 时 max ρ 有可观概率为负，$F_{\mathrm{beta}}$ 在
+  $t<0$ 有定义，密度自动显示负侧质量。
+
+### 3. 极值的渐近分布（Gumbel）
 
 单对尾部在大 N 下有高斯型渐近 $P(\rho > t) \approx \frac{1}{t\sqrt{2\pi N}} e^{-N t^2/2}$。
 M 对组合虽只是两两独立（不相互独立），但 Chen–Stein 方法可证明其极值行为与独立情形一致
@@ -73,7 +114,7 @@ $$P(W \le y) \;\longrightarrow\; \exp\!\left(-\kappa\, e^{-y/2}\right), \qquad
 > $1 - e^{-\kappa e^{y/2}}$；由 $\log\sin\Theta_{\min} \approx -(\max\rho)^2/2$ 可知
 > 它就是 $-W$ 的分布，整理后即上面的标准形式。
 
-由此推出工具中使用的三个量：
+由此推出工具中使用的两个量：
 
 **分位数函数**（对任意 $p \in (0,1)$；曲线 1 取 $p=0.5$ 即中位数，曲线 2 横轴上限取
 $p=0.999$）：由 $F = p$ 反解
@@ -88,28 +129,31 @@ $f_R(r) = 2N r \cdot f_W(Nr^2 - a)$，其中 $f_W(y) = \frac{\kappa}{2} e^{-y/2}
 
 $$f_R(r) = N\kappa\, r\, e^{-\frac{N r^2 - a}{2}} \exp\!\left(-\kappa\, e^{-\frac{N r^2 - a}{2}}\right)$$
 
-**近似均值**（统计栏）：标准 Gumbel（尺度 2）的均值为 $E[W] = 2(\gamma + \ln\kappa)$，
-$\gamma \approx 0.5772$ 为 Euler–Mascheroni 常数，故
+（备查：标准 Gumbel 的均值为 $E[W] = 2(\gamma + \ln\kappa)$，中位数为
+$2\ln\kappa - 2\ln\ln 2$，$\gamma \approx 0.5772$ 为 Euler–Mascheroni 常数；
+统计栏使用中位数字径，均值未采用。）
 
-$$E[\max\rho] \approx \sqrt{\frac{a(K) + 2(\gamma + \ln\kappa)}{N}}$$
-
-（严格说 $\sqrt{E[R^2]} \ge E[R]$，此式以 $\sqrt{E[R^2]}$ 代替 $E[R]$，仅作参考。）
-
-### 3. 一阶近似（曲线 1 的"2√(lnK/N)"线）
+### 4. 一阶近似（曲线 1 的"2√(lnK/N)"线）
 
 把 M 对点乘当作独立 $\mathcal N(0, 1/N)$，用高斯最大值启发式：令
 $M \cdot P(\rho > t) \approx 1$，只保留指数主项 $e^{-Nt^2/2}$，得
 
 $$\frac{Nt^2}{2} \approx \ln M \approx 2\ln K \quad\Longrightarrow\quad
-E[\max\rho] \approx \sqrt{\frac{2\ln M}{N}} \approx 2\sqrt{\frac{\ln K}{N}}$$
+\max\rho \approx \sqrt{\frac{2\ln M}{N}} \approx 2\sqrt{\frac{\ln K}{N}}$$
+
+口径说明："$M \cdot P = 1$"（期望超标次数 = 1）解出的是极值分布的**位置参数**，
+最接近**众数**（约 0.37 分位），而非均值或中位数——标准 Gumbel 的中位数、均值分别比
+位置参数高 $-2\ln\ln 2 \approx 0.73$ 和 $2\gamma \approx 1.15$（W 轴）。
+不过这些口径差异换算到 ρ 轴是 $O(1/(N\rho))$ 量级，远小于一阶近似丢掉
+$\ln\ln K$ 修正带来的 15%~25% 主项偏差，故仅作量级对照使用。
 
 与 Gumbel 精确渐近对比：它丢掉了 $1/t$ 因子产生的 $-\ln\ln K$ 修正和分布位置常数，
 因此**系统性偏高**（蒙特卡洛验证中约高 15%~25%）。它的价值在于形式极简，
 一眼给出"数量级随 $\sqrt{\ln K / N}$ 缩放"的直觉。
 
-### 4. 适用范围与失真
+### 5. 适用范围与失真
 
-#### 4.1 渐近条件 $\ln K = o(N)$ 的含义
+#### 5.1 渐近条件 $\ln K = o(N)$ 的含义
 
 定理要求 K、N 同时趋向无穷时 **ln K 增长得比 N 慢一个量级**，即
 
@@ -141,13 +185,36 @@ $\ln K / N \approx 11.5 / 4096 \approx 0.003$，深在次指数区域内部，
 故 Gumbel 公式严格适用：任意两个词嵌入夹角大概率不小于
 $\arccos\!\left(2\sqrt{11.5/4096}\right) \approx 83.9°$。
 
-#### 4.2 小 K 失真
+#### 5.2 小 K 失真与 F^M 的引入
 
-渐近定理还要求 K 足够大（$M = \binom{K}{2}$ 足够大，极值才进入 Gumbel 吸引域）。
-实测 $K \gtrsim 20$ 时预测与蒙特卡洛误差已在 2% 以内；K 为个位数时明显失真
-（极端例子 K=2：只有一对，单侧 max ρ 的中位数精确等于 0）。
-若需对小 K 也精确，可用 $P(\max\rho \le t) \approx F_{\mathrm{beta}}(t)^M$
-（精确 beta CDF 的 M 次方 + 独立性近似）数值求解，大 K 时与 Gumbel 自然衔接。
+Gumbel 渐近要求 K 足够大（$M = \binom{K}{2}$ 足够大，极值才进入 Gumbel 吸引域）。
+K 为个位数时 Gumbel 明显失真（极端例子 K=2：只有一对，单侧 max ρ 的中位数
+精确等于 0），且单侧小 K 时 max ρ 有可观概率取负值。
+
+本工具通过 §2 的 **F^M（beta 幂次）曲线**解决：K=2 时精确，小 K 时与蒙特卡洛
+误差在 1~2% 以内，大 K 时与 Gumbel 自然衔接。界面中 F^M 为实线主曲线，
+Gumbel 以虚线作为渐近对照，可直观看到两者随 K 增大逐渐贴合。
+
+#### 5.3 三条曲线的精度对比详解
+
+**F^M（蓝）**：唯一的近似是"M 对组合相互独立"。pair 之间实为两两独立、
+联合不独立（见 §3 开头），但 M 小时联合约束暴露的机会少，M 大时由极值理论
+与独立情形渐近一致——因此它在**全 K 范围**都贴近真值，是工具的主曲线。
+
+**Gumbel（黄）**：是 F^M 在 $K \to \infty$ 下的极限形式。极限定理要求 M 足够大，
+极值才进入 Gumbel 吸引域；实测 K ≳ 20 后中位数误差进入 2% 以内。
+
+**一阶近似（橙）**：比 Gumbel 更粗一级——只保留高斯尾部的指数主项。
+完整展开（M 个高斯取 max 的经典结果）为
+
+$$t^* \approx \sqrt{\frac{2\ln M}{N}} - \frac{\ln\ln M + \ln 4\pi}{2\sqrt{2N\ln M}}$$
+
+被丢掉的修正项相对量级为 $\ln\ln M / \ln M$，**衰减极慢**
+（K 从 $10^2$ 涨到 $10^5$ 才从 ~0.25 降到 ~0.13），因此一阶近似即使在大 K 下
+也系统性偏高 15%~25%（曲线 1 上橙线始终压在蓝线上方，缝隙收拢很慢）。
+小 K 端失真更彻底：K=2 时真值中位数为 0（单侧），一阶近似却给出
+$2\sqrt{\ln 2/N} \approx 1.67/\sqrt{N}$，高估一倍多。
+它的价值在于形式极简，一眼给出"随 K 对数增长、随 N 开方衰减"的缩放律。
 
 ### 参考文献
 
