@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>高维随机向量的最小夹角（最大点乘）</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>高维随机向量：最小夹角 / 最大点乘</h1>
+    <p class="subtitle">
+      N 维单位球面上均匀随机取 K 个向量，考察两两点乘的最大值（= 最小夹角的余弦）。
+      理论：Cai–Fan–Jiang (2013), <em>Distributions of Angles in Random Packing on Spheres</em>。
+      K 较小时渐近公式失真，属正常现象。
+    </p>
+  </header>
+
+  <section class="controls">
+    <div class="control">
+      <label for="sliderN">维数 N</label>
+      <input id="sliderN" type="range" min="0" max="1000" value="500" />
+      <input id="inputN" type="number" min="64" max="8192" step="1" />
+    </div>
+    <div class="control">
+      <label for="sliderK">向量数 K</label>
+      <input id="sliderK" type="range" min="0" max="1000" value="500" />
+      <input id="inputK" type="number" min="2" step="1" />
+    </div>
+    <div class="control control-inline">
+      <label for="chkTwoSided">
+        <input id="chkTwoSided" type="checkbox" />
+        双侧（max |ρ|）
+      </label>
+    </div>
+  </section>
+
+  <main>
+    <div class="chart-wrap">
+      <div id="chart1" class="chart"></div>
+      <p class="chart-note">
+        横轴 K（对数刻度）。一阶近似 2√(lnK/N) 与 Gumbel 修正中位数对比；竖线为当前 K。
+      </p>
+    </div>
+    <div class="chart-wrap">
+      <div id="chart2" class="chart"></div>
+      <p class="chart-note" id="stats"></p>
+    </div>
+  </main>
+
+  <script src="js/theory.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
