@@ -10,6 +10,22 @@
   const N_MIN = 64;
   const N_MAX = 8192;
 
+  // K 上限：N²（多项式增长，lnK/N = 2lnN/N 全程保持在次指数区域）
+  function kMax(N) {
+    return N * N;
+  }
+  // 渐近区域阈值：lnK/N 小于 SUB_EXP 视为次指数区域（理论线可信），
+  // 大于 TRANSITION 视为超出定理覆盖范围
+  const SUB_EXP = 0.05;
+  const TRANSITION = 0.25;
+
+  function regimeOf(N, K) {
+    const ratio = Math.log(K) / N;
+    if (ratio < SUB_EXP) return { cls: 'note-green', text: '次指数区域' };
+    if (ratio < TRANSITION) return { cls: 'note-yellow', text: '过渡区' };
+    return { cls: 'note-red', text: '超出定理覆盖范围' };
+  }
+
   const els = {
     sliderN: document.getElementById('sliderN'),
     inputN: document.getElementById('inputN'),
@@ -39,27 +55,35 @@
   function syncControls() {
     els.inputN.value = state.N;
     els.sliderN.value = valueToSlider(state.N, N_MIN, N_MAX);
-    els.inputK.max = state.N;
+    els.inputK.max = kMax(state.N);
     els.inputK.value = state.K;
-    els.sliderK.value = valueToSlider(state.K, 2, state.N);
+    els.sliderK.value = valueToSlider(state.K, 2, kMax(state.N));
     els.chkTwoSided.checked = state.twoSided;
   }
 
   // ---- 曲线 1：max ρ ~ K ----
   function renderChart1() {
     const { N, K, twoSided } = state;
+    const kHi = kMax(N);
     const samples = 160;
     const firstOrder = [];
     const gumbelMedian = [];
     const betaMedian = [];
     for (let i = 0; i <= samples; i++) {
       const k = Math.exp(
-        Math.log(2) + (i / samples) * (Math.log(N) - Math.log(2))
+        Math.log(2) + (i / samples) * (Math.log(kHi) - Math.log(2))
       );
       firstOrder.push([k, T.firstOrderMean(N, k)]);
       gumbelMedian.push([k, T.maxDotQuantile(0.5, N, k, twoSided)]);
       betaMedian.push([k, T.maxDotQuantileBeta(0.5, N, k, twoSided)]);
     }
+
+    // lnK/N > SUB_EXP 的区间铺浅灰背景：此区域理论线开始偏离
+    const kThreshold = Math.exp(SUB_EXP * N);
+    const markAreaData =
+      kThreshold < kHi
+        ? [[{ xAxis: kThreshold }, { xAxis: kHi }]]
+        : [];
 
     chart1.setOption(
       {
@@ -72,7 +96,7 @@
         },
         legend: { bottom: 0 },
         grid: { left: 60, right: 30, top: 50, bottom: 60 },
-        xAxis: { type: 'log', name: 'K（向量个数）', min: 2, max: N },
+        xAxis: { type: 'log', name: 'K（向量个数）', min: 2, max: kHi },
         yAxis: { type: 'value', name: 'max ρ', min: 0 },
         series: [
           {
@@ -81,6 +105,18 @@
             showSymbol: false,
             smooth: true,
             data: firstOrder,
+            markArea: {
+              silent: true,
+              itemStyle: { color: 'rgba(0,0,0,0.045)' },
+              label: {
+                show: markAreaData.length > 0,
+                position: 'insideTop',
+                color: '#999',
+                fontSize: 11,
+                formatter: 'lnK/N > ' + SUB_EXP + '：理论线开始偏离',
+              },
+              data: markAreaData,
+            },
           },
           {
             name: 'F^M 中位数（beta 幂次，全 K 适用）',
@@ -189,12 +225,15 @@
     const medGumbel = T.maxDotQuantile(0.5, N, K, twoSided);
     const first = T.firstOrderMean(N, K);
     const angleDeg = ((Math.acos(Math.max(-1, Math.min(1, med))) * 180) / Math.PI).toFixed(2);
+    const regime = regimeOf(N, K);
     els.stats.innerHTML =
       'max ρ 中位数：<strong class="legend-note note-blue">F^M ≈ ' + med.toFixed(4) + '</strong>' +
       '，<strong class="legend-note note-yellow">Gumbel ≈ ' + medGumbel.toFixed(4) + '</strong>' +
       '；<strong class="legend-note note-orange">一阶近似（众数口径）≈ ' + first.toFixed(4) + '</strong>' +
       '；对应最小夹角 ≈ <strong class="legend-note note-gray">' + angleDeg + '°</strong>。' +
-      '单对 ρ 的散布 σ ≈ 1/√N ≈ ' + (1 / Math.sqrt(N)).toFixed(4) + '。';
+      '单对 ρ 的散布 σ ≈ 1/√N ≈ ' + (1 / Math.sqrt(N)).toFixed(4) + '。' +
+      ' lnK/N = ' + (Math.log(K) / N).toFixed(4) +
+      ' <strong class="legend-note ' + regime.cls + '">' + regime.text + '</strong>';
   }
 
   function render() {
@@ -204,26 +243,26 @@
   }
 
   // ---- 事件 ----
-  els.sliderN.addEventListener('input', () => {
+    els.sliderN.addEventListener('input', () => {
     state.N = sliderToValue(Number(els.sliderN.value), N_MIN, N_MAX);
-    state.K = Math.min(state.K, state.N);
+    state.K = Math.min(state.K, kMax(state.N));
     render();
   });
   els.inputN.addEventListener('change', () => {
     let v = Math.round(Number(els.inputN.value));
     if (!isFinite(v)) v = state.N;
     state.N = Math.max(N_MIN, Math.min(N_MAX, v));
-    state.K = Math.min(state.K, state.N);
+    state.K = Math.min(state.K, kMax(state.N));
     render();
   });
   els.sliderK.addEventListener('input', () => {
-    state.K = sliderToValue(Number(els.sliderK.value), 2, state.N);
+    state.K = sliderToValue(Number(els.sliderK.value), 2, kMax(state.N));
     render();
   });
   els.inputK.addEventListener('change', () => {
     let v = Math.round(Number(els.inputK.value));
     if (!isFinite(v)) v = state.K;
-    state.K = Math.max(2, Math.min(state.N, v));
+    state.K = Math.max(2, Math.min(kMax(state.N), v));
     render();
   });
   els.chkTwoSided.addEventListener('change', () => {

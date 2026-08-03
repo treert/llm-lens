@@ -48,6 +48,16 @@ header h1 {
   background: #f6f8fa;
 }
 
+.note-green {
+  color: #15803d;
+  background: #f0fdf4;
+}
+
+.note-red {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
