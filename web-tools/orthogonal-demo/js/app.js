@@ -1,11 +1,13 @@
 /**
- * 交互与渲染：滑杆/输入框状态同步，调用 Theory 生成曲线数据，ECharts 绘图。
- * 依赖：echarts（CDN）、Theory（js/theory.js）。
+ * 交互与渲染：滑杆/输入框状态同步，调用 Theory 生成理论曲线、MC 驱动
+ * 蒙特卡洛流式模拟（generator + 时间片），ECharts 绘图。
+ * 依赖：echarts（CDN）、Theory（js/theory.js）、MC（js/montecarlo.js）。
  */
 (function () {
   'use strict';
 
   const T = window.Theory;
+  const MC = window.MC;
 
   const N_MIN = 64;
   const N_MAX = 8192;
@@ -18,6 +20,13 @@
   // 大于 TRANSITION 视为超出定理覆盖范围
   const SUB_EXP = 0.05;
   const TRANSITION = 0.25;
+
+  // 单批运算预算（乘加次数，约 10~20 s/批）
+  const OPS_BUDGET = 5e9;
+  // MC 叠加层配色
+  const MC_COLOR = '#7c3aed';
+  const MC_BAND = 'rgba(124,58,237,0.15)';
+  const MC_HIST = '#6b7280';
 
   function regimeOf(N, K) {
     const ratio = Math.log(K) / N;
@@ -33,6 +42,14 @@
     inputK: document.getElementById('inputK'),
     chkTwoSided: document.getElementById('chkTwoSided'),
     stats: document.getElementById('stats'),
+    btnMcStart: document.getElementById('btnMcStart'),
+    btnMcPause: document.getElementById('btnMcPause'),
+    btnMcReset: document.getElementById('btnMcReset'),
+    selR: document.getElementById('selR'),
+    chkAuto: document.getElementById('chkAuto'),
+    chkSeed: document.getElementById('chkSeed'),
+    inputSeed: document.getElementById('inputSeed'),
+    mcStatus: document.getElementById('mcStatus'),
   };
 
   const chart1 = echarts.init(document.getElementById('chart1'));
@@ -61,9 +78,12 @@
     els.chkTwoSided.checked = state.twoSided;
   }
 
-  // ---- 曲线 1：max ρ ~ K ----
-  function renderChart1() {
-    const { N, K, twoSided } = state;
+  // ---- 理论数据缓存：MC 运行中 4fps 重绘时避免重算理论曲线 ----
+  const cache1 = { key: '', firstOrder: null, gumbelMedian: null, betaMedian: null };
+  function theoryData1() {
+    const { N, twoSided } = state;
+    const key = N + '|' + twoSided;
+    if (cache1.key === key) return cache1;
     const kHi = kMax(N);
     const samples = 160;
     const firstOrder = [];
@@ -77,6 +97,397 @@
       gumbelMedian.push([k, T.maxDotQuantile(0.5, N, k, twoSided)]);
       betaMedian.push([k, T.maxDotQuantileBeta(0.5, N, k, twoSided)]);
     }
+    cache1.key = key;
+    cache1.firstOrder = firstOrder;
+    cache1.gumbelMedian = gumbelMedian;
+    cache1.betaMedian = betaMedian;
+    return cache1;
+  }
+
+  const cache2 = { key: '', xLo: 0, xHi: 0, maxDotGumbel: null, maxDotBeta: null, singlePair: null };
+  function theoryData2() {
+    const { N, K, twoSided } = state;
+    const key = N + '|' + K + '|' + twoSided;
+    if (cache2.key === key) return cache2;
+    // 横轴范围：覆盖 F^M 分布的 [0.1%, 99.9%] 分位区间与单对密度可见范围（≈6σ）
+    const q001 = T.maxDotQuantileBeta(0.001, N, K, twoSided);
+    const q999 = Math.max(
+      T.maxDotQuantileBeta(0.999, N, K, twoSided),
+      T.maxDotQuantile(0.999, N, K, twoSided)
+    );
+    // 双侧 max|ρ| 无负支撑；单侧小 K 时负半轴有可观质量，自动扩展
+    const xLo = twoSided ? 0 : Math.min(0, q001 * 1.1);
+    const xHi = Math.min(1, Math.max(q999, 6 / Math.sqrt(N)) * 1.05);
+    // 大 K 时密度峰极窄（宽度 ~1/(2N·maxρ)），采样点要足够密才能画光滑
+    const samples = 1200;
+    const maxDotGumbel = [];
+    const maxDotBeta = [];
+    const singlePair = [];
+    for (let i = 0; i <= samples; i++) {
+      const r = xLo + (i / samples) * (xHi - xLo);
+      maxDotGumbel.push([r, T.maxDotDensity(r, N, K, twoSided)]);
+      maxDotBeta.push([r, T.maxDotDensityBeta(r, N, K, twoSided)]);
+      // 双侧模式下对比基线应为单个 |ρ| 的密度：负半轴折叠到正半轴，高度翻倍
+      const g = T.pairDotDensity(r, N);
+      singlePair.push([r, twoSided ? 2 * g : g]);
+    }
+    cache2.key = key;
+    cache2.xLo = xLo;
+    cache2.xHi = xHi;
+    cache2.maxDotGumbel = maxDotGumbel;
+    cache2.maxDotBeta = maxDotBeta;
+    cache2.singlePair = singlePair;
+    return cache2;
+  }
+
+  // ================= 蒙特卡洛 =================
+
+  const mc = {
+    session: null, // MC.createSession 返回 { pool, nextBatch }
+    gen: null,
+    timer: 0,
+    running: false,
+    paused: false,
+    probed: false,
+    probedPeak: -1,
+    memBytes: MC.TWO_GB,
+    batchStart: 0,
+    lastPairs: 0,
+    totalPairs: 0,
+    lastFrame: 0,
+  };
+
+  function fmtBytes(b) {
+    if (b >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    return (b / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function rSelected() {
+    return Number(els.selR.value);
+  }
+
+  function seedSelected() {
+    if (!els.chkSeed.checked) return null;
+    const v = Math.floor(Number(els.inputSeed.value));
+    return isFinite(v) ? v >>> 0 : 42;
+  }
+
+  /** 当前 (N, R, 预算) 下的 K 上限与每批内存 */
+  function mcPlan(R) {
+    const kM = MC.computeKMax(state.N, R, mc.memBytes, OPS_BUDGET);
+    const bytes = 4 * R * kM * state.N;
+    return { kM: kM, bytes: bytes };
+  }
+
+  /** 批次轨迹数钳制：换大 R 追加时不超内存/运算预算 */
+  function clampBatchR(session, R) {
+    const KMax = session.pool.KMax;
+    const byMem = Math.floor(mc.memBytes / (4 * KMax * state.N));
+    const byOps = Math.floor((2 * OPS_BUDGET) / (KMax * KMax * state.N));
+    return Math.max(1, Math.min(R, byMem, byOps));
+  }
+
+  function updateMcButtons() {
+    const hasSession = !!mc.session;
+    const completed = hasSession && mc.session.pool.runsComplete > 0;
+    els.btnMcStart.textContent = completed ? '追加一批' : '开始模拟';
+    els.btnMcStart.disabled = mc.running || mc.paused;
+    els.btnMcPause.disabled = !(mc.running || mc.paused);
+    els.btnMcPause.textContent = mc.paused ? '继续' : '暂停';
+    els.btnMcReset.disabled = !hasSession;
+    els.selR.disabled = mc.running || mc.paused;
+    els.chkSeed.disabled = mc.running || mc.paused;
+    els.inputSeed.disabled = mc.running || mc.paused || !els.chkSeed.checked;
+  }
+
+  function setMcStatus(html) {
+    els.mcStatus.innerHTML = html;
+  }
+
+  function mcInfoText() {
+    const R = rSelected();
+    const plan = mcPlan(R);
+    let s =
+      '内存预算 <strong>' + fmtBytes(mc.memBytes) + '</strong>' +
+      (mc.probed
+        ? '（实测峰值 ' + fmtBytes(mc.probedPeak) + ' × 70%）'
+        : '（名义值，首次运行时实测）') +
+      '；R=' + R + '/批 → K 上限 ≈ <strong>' + plan.kM.toLocaleString('en-US') + '</strong>' +
+      '（每批内存 ≈ ' + fmtBytes(plan.bytes) + '）';
+    if (mc.session && mc.session.pool.runsComplete > 0) {
+      const p = mc.session.pool;
+      const mean = p.cntAll > 0 ? p.sumAll / p.cntAll : 0;
+      const rel = 1.25 * 0.055 / Math.sqrt(p.runsComplete);
+      s +=
+        '；累计轨迹 <strong class="legend-note note-blue">R=' + p.runsComplete + '</strong>' +
+        '（中位数涨落 ≈ ±' + (rel * 100).toFixed(1) + '%）' +
+        '；点积均值 ' + mean.toFixed(5) + '（应 ≈ 0）';
+    }
+    return s;
+  }
+
+  function resetMc() {
+    if (mc.timer) clearTimeout(mc.timer);
+    mc.session = null;
+    mc.gen = null;
+    mc.timer = 0;
+    mc.running = false;
+    mc.paused = false;
+    updateMcButtons();
+    setMcStatus(mcInfoText());
+  }
+
+  function startMc() {
+    if (!mc.probed) {
+      // 首次运行：先实测可分配内存（同步 ~0.5-2 s），再开批
+      setMcStatus('正在探测可用内存…');
+      setTimeout(() => {
+        mc.probedPeak = MC.probeMemory();
+        mc.memBytes = MC.budgetFromProbe(mc.probedPeak);
+        mc.probed = true;
+        startMc();
+      }, 50);
+      return;
+    }
+    if (!mc.session) {
+      const R = rSelected();
+      const plan = mcPlan(R);
+      mc.session = MC.createSession({
+        N: state.N,
+        KMax: plan.kM,
+        twoSided: state.twoSided,
+        seed: seedSelected(),
+      });
+    }
+    const R = clampBatchR(mc.session, rSelected());
+    mc.gen = mc.session.nextBatch(R);
+    mc.totalPairs = (R * mc.session.pool.KMax * (mc.session.pool.KMax - 1)) / 2;
+    mc.lastPairs = 0;
+    mc.batchStart = performance.now();
+    mc.running = true;
+    mc.paused = false;
+    updateMcButtons();
+    drive();
+  }
+
+  function pauseMc() {
+    if (mc.paused) {
+      mc.paused = false;
+      updateMcButtons();
+      drive();
+    } else {
+      mc.paused = true;
+      if (mc.timer) clearTimeout(mc.timer);
+      setMcStatus('已暂停 · ' + mcProgressText());
+      updateMcButtons();
+    }
+  }
+
+  function mcProgressText() {
+    const p = mc.session.pool;
+    const elapsed = (performance.now() - mc.batchStart) / 1000;
+    const rate = elapsed > 0.1 ? mc.lastPairs / elapsed : 0;
+    const remain = rate > 0 ? (mc.totalPairs - mc.lastPairs) / rate : NaN;
+    return (
+      'K=' + p.kProgress + '/' + p.KMax +
+      ' · 累计轨迹 R=' + (p.runsComplete + p.batchRuns) +
+      ' · 本批内存 ≈ ' + fmtBytes(4 * p.batchRuns * p.KMax * p.N) +
+      ' · 已用 ' + elapsed.toFixed(1) + ' s' +
+      (isFinite(remain) ? ' · 预计剩余 ' + remain.toFixed(0) + ' s' : '')
+    );
+  }
+
+  function drive() {
+    if (!mc.gen) return;
+    const t0 = performance.now();
+    let res = null;
+    do {
+      res = mc.gen.next();
+      if (!res.done) mc.lastPairs = res.value.pairs;
+    } while (!res.done && performance.now() - t0 < 30);
+
+    if (res.done) {
+      onBatchDone();
+      return;
+    }
+    setMcStatus('运行中 ' + mcProgressText());
+    // 帧率节流：最多 ~4fps 重绘
+    const now = performance.now();
+    if (now - mc.lastFrame > 250) {
+      mc.lastFrame = now;
+      render();
+    }
+    mc.timer = setTimeout(drive, 0);
+  }
+
+  function onBatchDone() {
+    mc.gen = null;
+    mc.running = false;
+    mc.paused = false;
+    render();
+    if (els.chkAuto.checked) {
+      startMc();
+      return;
+    }
+    setMcStatus('本批完成 · ' + mcInfoText());
+    updateMcButtons();
+  }
+
+  // ---- MC 叠加层：曲线 1 ----
+  function mcOverlay1() {
+    if (!mc.session) return { series: [], legendData: [] };
+    const p = mc.session.pool;
+    if (p.kProgress < 2) return { series: [], legendData: [] };
+    const n = MC.columnValues(p, p.kProgress).length;
+    if (n === 0) return { series: [], legendData: [] };
+
+    // 单条轨迹：画最新一条的原始"破纪录"路径
+    if (n === 1) {
+      const arr = p.maxRuns[p.maxRuns.length - 1];
+      const path = [];
+      for (let k = 2; k <= p.kProgress; k++) path.push([k, arr[k]]);
+      return {
+        series: [
+          {
+            name: '模拟轨迹（单条原始路径）',
+            type: 'line',
+            showSymbol: false,
+            color: MC_COLOR,
+            lineStyle: { width: 1.5 },
+            data: path,
+          },
+        ],
+        legendData: ['模拟轨迹（单条原始路径）'],
+      };
+    }
+
+    // 多条轨迹：对数抽稀 K 点，跨轨迹中位数 + IQR 带（n ≥ 8 时）
+    const ks = [];
+    const S = 160;
+    let last = 1;
+    for (let i = 0; i <= S; i++) {
+      const k = Math.round(
+        Math.exp(Math.log(2) + (i / S) * (Math.log(p.kProgress) - Math.log(2)))
+      );
+      if (k > last && k <= p.kProgress) {
+        ks.push(k);
+        last = k;
+      }
+    }
+    const med = [];
+    const q1 = [];
+    const q3 = [];
+    for (const k of ks) {
+      const agg = MC.aggregateColumn(p, k);
+      med.push([k, agg.median]);
+      q1.push([k, agg.q1]);
+      q3.push([k, agg.q3]);
+    }
+    const series = [
+      {
+        name: '模拟中位数（R=' + n + '）',
+        type: 'line',
+        showSymbol: false,
+        color: MC_COLOR,
+        lineStyle: { width: 2 },
+        data: med,
+      },
+    ];
+    const legendData = ['模拟中位数（R=' + n + '）'];
+    if (n >= 8) {
+      // IQR 带：闭合多边形（正向 q1 + 反向 q3）。log 轴下 stack 面积
+      // 会填充到 y=0 而非下边界，故不用堆叠方案
+      const polygon = q1.concat(q3.reverse());
+      series.push({
+        name: '模拟 IQR 带（25~75%）',
+        type: 'line',
+        showSymbol: false,
+        silent: true,
+        lineStyle: { opacity: 0 },
+        areaStyle: { color: MC_BAND },
+        data: polygon,
+      });
+      legendData.push('模拟 IQR 带（25~75%）');
+    }
+    return { series: series, legendData: legendData };
+  }
+
+  // 阶梯线展开：bin 中心序列 → 平顶阶梯点列
+  function toStepPairs(xs, ys, width) {
+    const pts = [];
+    for (let i = 0; i < xs.length; i++) {
+      pts.push([xs[i] - width / 2, ys[i]], [xs[i] + width / 2, ys[i]]);
+    }
+    return pts;
+  }
+
+  // ---- MC 叠加层：曲线 2 ----
+  function mcOverlay2(xLo, xHi) {
+    const out = { series: [], legendData: [], note: '' };
+    if (!mc.session) return out;
+    const p = mc.session.pool;
+
+    // ① 点积直方图（K 无关，跨批累积）
+    if (p.cntAll > 0) {
+      const h = MC.pairHistDensity(p);
+      out.series.push({
+        name: '模拟点积直方图（M=' + p.cntAll.toExponential(1) + ' 对）',
+        type: 'line',
+        showSymbol: false,
+        color: MC_HIST,
+        lineStyle: { width: 1.5 },
+        areaStyle: { opacity: 0.08 },
+        data: toStepPairs(h.xs, h.ys, h.width),
+      });
+      out.legendData.push(out.series[out.series.length - 1].name);
+    }
+
+    // ② 当前 K_select 处的 max ρ 模拟密度
+    if (state.K > p.kProgress) {
+      out.note =
+        '当前 K=' + state.K + ' 超出模拟进度（K=' + p.kProgress +
+        (p.batchDone && p.kProgress === p.KMax ? '，上限 ' + p.KMax : '') +
+        '），仅显示理论曲线。';
+      return out;
+    }
+    const n = MC.columnValues(p, state.K).length;
+    if (n < 8) {
+      out.note = 'K=' + state.K + ' 处模拟样本 n=' + n + ' < 8，密度暂不显示。';
+      return out;
+    }
+    if (n >= 32) {
+      const grid = [];
+      for (let i = 0; i <= 120; i++) grid.push(xLo + (i / 120) * (xHi - xLo));
+      const kde = MC.columnKDE(p, state.K, grid);
+      const data = grid.map((x, i) => [x, kde.ys[i]]);
+      out.series.push({
+        name: '模拟 max ρ 密度（K=' + state.K + ', n=' + n + ', KDE）',
+        type: 'line',
+        showSymbol: false,
+        color: MC_COLOR,
+        lineStyle: { width: 2 },
+        data: data,
+      });
+    } else {
+      const h = MC.columnHist(p, state.K, xLo, xHi, 24);
+      out.series.push({
+        name: '模拟 max ρ 直方图（K=' + state.K + ', n=' + n + '）',
+        type: 'line',
+        showSymbol: false,
+        color: MC_COLOR,
+        lineStyle: { width: 1.5 },
+        data: toStepPairs(h.xs, h.ys, h.width),
+      });
+    }
+    out.legendData.push(out.series[out.series.length - 1].name);
+    return out;
+  }
+
+  // ---- 曲线 1：max ρ ~ K ----
+  function renderChart1() {
+    const { N, K } = state;
+    const kHi = kMax(N);
+    const td = theoryData1();
 
     // lnK/N > SUB_EXP 的区间铺浅灰背景：此区域理论线开始偏离
     const kThreshold = Math.exp(SUB_EXP * N);
@@ -84,6 +495,8 @@
       kThreshold < kHi
         ? [[{ xAxis: kThreshold }, { xAxis: kHi }]]
         : [];
+
+    const mcOv = mcOverlay1();
 
     chart1.setOption(
       {
@@ -113,7 +526,7 @@
             type: 'line',
             showSymbol: false,
             smooth: true,
-            data: firstOrder,
+            data: td.firstOrder,
             markArea: {
               silent: true,
               itemStyle: { color: 'rgba(0,0,0,0.045)' },
@@ -132,7 +545,7 @@
             type: 'line',
             showSymbol: false,
             smooth: true,
-            data: betaMedian,
+            data: td.betaMedian,
             markLine: {
               silent: true,
               symbol: 'none',
@@ -147,9 +560,9 @@
             showSymbol: false,
             smooth: true,
             lineStyle: { type: 'dashed' },
-            data: gumbelMedian,
+            data: td.gumbelMedian,
           },
-        ],
+        ].concat(mcOv.series),
       },
       { notMerge: true }
     );
@@ -158,30 +571,8 @@
   // ---- 曲线 2：给定 (N,K) 的密度 ----
   function renderChart2() {
     const { N, K, twoSided } = state;
-
-    // 横轴范围：覆盖 F^M 分布的 [0.1%, 99.9%] 分位区间与单对密度可见范围（≈6σ）
-    const q001 = T.maxDotQuantileBeta(0.001, N, K, twoSided);
-    const q999 = Math.max(
-      T.maxDotQuantileBeta(0.999, N, K, twoSided),
-      T.maxDotQuantile(0.999, N, K, twoSided)
-    );
-    // 双侧 max|ρ| 无负支撑；单侧小 K 时负半轴有可观质量，自动扩展
-    const xLo = twoSided ? 0 : Math.min(0, q001 * 1.1);
-    const xHi = Math.min(1, Math.max(q999, 6 / Math.sqrt(N)) * 1.05);
-
-    // 大 K 时密度峰极窄（宽度 ~1/(2N·maxρ)），采样点要足够密才能画光滑
-    const samples = 1200;
-    const maxDotGumbel = [];
-    const maxDotBeta = [];
-    const singlePair = [];
-    for (let i = 0; i <= samples; i++) {
-      const r = xLo + (i / samples) * (xHi - xLo);
-      maxDotGumbel.push([r, T.maxDotDensity(r, N, K, twoSided)]);
-      maxDotBeta.push([r, T.maxDotDensityBeta(r, N, K, twoSided)]);
-      // 双侧模式下对比基线应为单个 |ρ| 的密度：负半轴折叠到正半轴，高度翻倍
-      const g = T.pairDotDensity(r, N);
-      singlePair.push([r, twoSided ? 2 * g : g]);
-    }
+    const td = theoryData2();
+    const mcOv = mcOverlay2(td.xLo, td.xHi);
 
     chart2.setOption(
       {
@@ -201,8 +592,8 @@
         xAxis: {
           type: 'value',
           name: 'ρ（点乘）',
-          min: xLo,
-          max: xHi,
+          min: td.xLo,
+          max: td.xHi,
           // 轴端点默认显示 xHi 的完整浮点精度；限制为 3 位有效数字并去尾零
           axisLabel: {
             formatter: (v) => String(Number(v.toPrecision(3))),
@@ -216,7 +607,7 @@
             showSymbol: false,
             smooth: true,
             areaStyle: { opacity: 0.08 },
-            data: maxDotBeta,
+            data: td.maxDotBeta,
           },
           {
             name: 'max ρ 密度（Gumbel 渐近）',
@@ -224,7 +615,7 @@
             showSymbol: false,
             smooth: true,
             lineStyle: { type: 'dashed' },
-            data: maxDotGumbel,
+            data: td.maxDotGumbel,
           },
           {
             name: twoSided
@@ -233,9 +624,9 @@
             type: 'line',
             showSymbol: false,
             smooth: true,
-            data: singlePair,
+            data: td.singlePair,
           },
-        ],
+        ].concat(mcOv.series),
       },
       { notMerge: true }
     );
@@ -252,7 +643,8 @@
       '；对应最小夹角 ≈ <strong class="legend-note note-gray">' + angleDeg + '°</strong>。' +
       '单对 ρ 的散布 σ ≈ 1/√N ≈ ' + (1 / Math.sqrt(N)).toFixed(4) + '。' +
       ' lnK/N = ' + (Math.log(K) / N).toFixed(4) +
-      ' <strong class="legend-note ' + regime.cls + '">' + regime.text + '</strong>';
+      ' <strong class="legend-note ' + regime.cls + '">' + regime.text + '</strong>' +
+      (mcOv.note ? ' <strong class="legend-note note-gray">' + mcOv.note + '</strong>' : '');
   }
 
   function render() {
@@ -262,9 +654,10 @@
   }
 
   // ---- 事件 ----
-    els.sliderN.addEventListener('input', () => {
+  els.sliderN.addEventListener('input', () => {
     state.N = sliderToValue(Number(els.sliderN.value), N_MIN, N_MAX);
     state.K = Math.min(state.K, kMax(state.N));
+    resetMc(); // N 变化：模拟全部作废（数据严格以 N 为参数）
     render();
   });
   els.inputN.addEventListener('change', () => {
@@ -272,11 +665,12 @@
     if (!isFinite(v)) v = state.N;
     state.N = Math.max(N_MIN, Math.min(N_MAX, v));
     state.K = Math.min(state.K, kMax(state.N));
+    resetMc();
     render();
   });
   els.sliderK.addEventListener('input', () => {
     state.K = sliderToValue(Number(els.sliderK.value), 2, kMax(state.N));
-    render();
+    render(); // K 是视图游标，不影响模拟
   });
   els.inputK.addEventListener('change', () => {
     let v = Math.round(Number(els.inputK.value));
@@ -286,6 +680,25 @@
   });
   els.chkTwoSided.addEventListener('change', () => {
     state.twoSided = els.chkTwoSided.checked;
+    resetMc(); // 单双侧数据不可换算，清空
+    render();
+  });
+  els.selR.addEventListener('change', () => {
+    if (!mc.running && !mc.paused) setMcStatus(mcInfoText());
+  });
+  els.chkSeed.addEventListener('change', () => {
+    els.inputSeed.disabled = !els.chkSeed.checked;
+    resetMc(); // 种子口径变化等同重置
+    render();
+  });
+  els.inputSeed.addEventListener('change', () => {
+    resetMc();
+    render();
+  });
+  els.btnMcStart.addEventListener('click', startMc);
+  els.btnMcPause.addEventListener('click', pauseMc);
+  els.btnMcReset.addEventListener('click', () => {
+    resetMc();
     render();
   });
   window.addEventListener('resize', () => {
@@ -293,5 +706,7 @@
     chart2.resize();
   });
 
+  updateMcButtons();
+  setMcStatus(mcInfoText());
   render();
 })();

@@ -35,6 +35,28 @@
         双侧（max |ρ|）
       </label>
     </div>
+    <div class="control control-mc">
+      <button id="btnMcStart" type="button">开始模拟</button>
+      <button id="btnMcPause" type="button" disabled>暂停</button>
+      <button id="btnMcReset" type="button" disabled>重置</button>
+      <label for="selR">轨迹/批</label>
+      <select id="selR">
+        <option value="1">1</option>
+        <option value="4">4</option>
+        <option value="16" selected>16</option>
+        <option value="64">64</option>
+      </select>
+      <label for="chkAuto">
+        <input id="chkAuto" type="checkbox" />
+        自动追加
+      </label>
+      <label for="chkSeed">
+        <input id="chkSeed" type="checkbox" />
+        固定种子
+      </label>
+      <input id="inputSeed" type="number" value="42" step="1" disabled />
+    </div>
+    <p class="mc-status" id="mcStatus"></p>
   </section>
 
   <main>
@@ -53,6 +75,7 @@
   </main>
 
   <script src="js/theory.js"></script>
+  <script src="js/montecarlo.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

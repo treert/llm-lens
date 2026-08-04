@@ -93,6 +93,49 @@ header h1 {
   font-size: 14px;
 }
 
+.control-mc {
+  flex-wrap: wrap;
+}
+
+.control-mc button {
+  padding: 4px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.control-mc button:hover:not(:disabled) {
+  background: #eaeef2;
+}
+
+.control-mc button:disabled {
+  color: #8c959f;
+  cursor: not-allowed;
+}
+
+.control-mc select {
+  padding: 3px 6px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.control-mc input[type="number"] {
+  width: 70px;
+  font-size: 13px;
+}
+
+.mc-status {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #57606a;
+  line-height: 1.6;
+  min-height: 1.2em;
+}
+
 main {
   display: grid;
   grid-template-columns: 1fr;

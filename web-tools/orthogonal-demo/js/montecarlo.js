@@ -1,0 +1,324 @@
+/**
+ * 蒙特卡洛流式模拟：高维球面随机向量的点积与最大点乘（对应 monte-carlo-design.md）。
+ *
+ * 要点：
+ * - 逐向量推进，每对点积只算一次；generator 形式，由调用方按时间片驱动；
+ * - 分批累积：每批 R 条新轨迹，批末释放向量内存，maxRuns 曲线入池；
+ * - 每条轨迹独立 RNG 子流（seed 与轨迹全局序号派生），结果与分批方式无关；
+ * - 无 DOM 依赖，node 可直接 require 跑 test/mc-selftest.js。
+ */
+(function (global) {
+  'use strict';
+
+  var MB = 1024 * 1024;
+  var TWO_GB = 2 * 1024 * 1024 * 1024;
+
+  /** mulberry32：32 位可设种子的轻量 PRNG */
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /** Box–Muller 高斯 RNG，缓存 sin 支路下次复用 */
+  function makeGaussian(rand) {
+    var spare = null;
+    return function () {
+      if (spare !== null) {
+        var s = spare;
+        spare = null;
+        return s;
+      }
+      var u;
+      do {
+        u = rand();
+      } while (u <= 1e-300);
+      var v = 2 * Math.PI * rand();
+      var r = Math.sqrt(-2 * Math.log(u));
+      spare = r * Math.sin(v);
+      return r * Math.cos(v);
+    };
+  }
+
+  /**
+   * K 上限：min(内存约束, 运算约束, N²)，至少为 2。
+   * memBytes 为向量内存预算（4·R·K·N 字节），opsBudget 为单批乘加预算
+   * （R·K²·N/2 次）。
+   */
+  function computeKMax(N, R, memBytes, opsBudget) {
+    var byMem = Math.floor(memBytes / (4 * R * N));
+    var byOps = Math.floor(Math.sqrt((2 * opsBudget) / (R * N)));
+    return Math.max(2, Math.min(byMem, byOps, N * N));
+  }
+
+  /** probe 峰值 → 真实预算：min(峰值 × 70%, 2GB)；峰值过小回退 256MB */
+  function budgetFromProbe(peakBytes) {
+    if (!isFinite(peakBytes) || peakBytes < 64 * MB) return 256 * MB;
+    return Math.min(peakBytes * 0.7, TWO_GB);
+  }
+
+  /**
+   * 渐进分配实测可提交内存（仅浏览器首次运行时调用）。
+   * 每 4KB 页写 1 字节防止惰性提交假阳性；失败或达上限即停。
+   * 返回峰值字节数；缓冲区在返回后由 GC 回收。
+   */
+  function probeMemory(opts) {
+    opts = opts || {};
+    var chunk = opts.chunkBytes || 64 * MB;
+    var cap = opts.capBytes || 4 * 1024 * MB;
+    var bufs = [];
+    var total = 0;
+    try {
+      while (total + chunk <= cap) {
+        var b = new Uint8Array(chunk);
+        for (var p = 0; p < b.length; p += 4096) b[p] = 1;
+        bufs.push(b);
+        total += chunk;
+      }
+    } catch (e) {
+      /* 分配失败即到达上限 */
+    }
+    return total;
+  }
+
+  /** 点积槽位直方图：bins 个等宽内槽 + 首尾两个开口槽；每槽存 sum 与 count */
+  function createHist(lo, hi, bins) {
+    var width = (hi - lo) / bins;
+    var h = {
+      lo: lo,
+      hi: hi,
+      bins: bins,
+      width: width,
+      sum: new Float64Array(bins + 2),
+      count: new Float64Array(bins + 2),
+    };
+    h.add = function (x) {
+      var i = Math.floor((x - lo) / width) + 1;
+      if (i < 0) i = 0;
+      else if (i > bins + 1) i = bins + 1;
+      h.sum[i] += x;
+      h.count[i] += 1;
+    };
+    return h;
+  }
+
+  /**
+   * 创建模拟会话。
+   * cfg: { N, KMax, twoSided, seed }（seed 省略则随机）。
+   * 返回 { pool, nextBatch(R) }：
+   * - pool.maxRuns：每条轨迹的 Float32Array(KMax+1)，[k] = 前 k 个向量的
+   *   运行最大值（k < 2 不用）；
+   * - pool.hist / sumAll / cntAll：全体点积的直方图与总和（跨批累积）；
+   * - pool.kProgress：当前批次已推进的 K；runsComplete：已完成轨迹数；
+   * - nextBatch(R) 返回 generator，每完成一个向量 yield
+   *   { k, r, pairs }，批结束 return { done: true, pairs }。
+   */
+  function createSession(cfg) {
+    var N = cfg.N;
+    var KMax = cfg.KMax;
+    var twoSided = !!cfg.twoSided;
+    var seed =
+      (cfg.seed == null ? Math.floor(Math.random() * 0x100000000) : cfg.seed) >>> 0;
+    var sigma = 1 / Math.sqrt(N);
+    var pool = {
+      N: N,
+      KMax: KMax,
+      twoSided: twoSided,
+      seed: seed,
+      maxRuns: [],
+      hist: twoSided
+        ? createHist(0, 8 * sigma, 512)
+        : createHist(-8 * sigma, 8 * sigma, 512),
+      sumAll: 0,
+      cntAll: 0,
+      kProgress: 1,
+      runsComplete: 0,
+      batchRuns: 0,
+      batchDone: true,
+    };
+
+    function nextBatch(R) {
+      if (!pool.batchDone) throw new Error('上一批未结束');
+      pool.batchDone = false;
+      pool.batchRuns = R;
+      pool.kProgress = 1;
+      var base = pool.runsComplete;
+      var vecs = [];
+      var arrs = [];
+      var gauss = [];
+      for (var r = 0; r < R; r++) {
+        vecs.push(new Float32Array(KMax * N));
+        var arr = new Float32Array(KMax + 1);
+        arr[1] = twoSided ? 0 : -Infinity;
+        arrs.push(arr);
+        pool.maxRuns.push(arr);
+        // 每轨迹独立子流：与分批方式无关的确定性（分批池化等价）
+        gauss.push(
+          makeGaussian(mulberry32((seed + Math.imul(base + r + 1, 0x9e3779b9)) >>> 0))
+        );
+      }
+      var pairs = 0;
+      return (function* () {
+        for (var k = 2; k <= KMax; k++) {
+          for (var r2 = 0; r2 < R; r2++) {
+            var V = vecs[r2];
+            var off = (k - 1) * N;
+            var g = 0;
+            var norm = 0;
+            var j = 0;
+            for (j = 0; j < N; j++) {
+              g = gauss[r2]();
+              V[off + j] = g;
+              norm += g * g;
+            }
+            norm = Math.sqrt(norm);
+            for (j = 0; j < N; j++) V[off + j] /= norm;
+            var m = twoSided ? 0 : -Infinity;
+            for (var pj = 0; pj < k - 1; pj++) {
+              var o2 = pj * N;
+              var d = 0;
+              for (j = 0; j < N; j++) d += V[off + j] * V[o2 + j];
+              var key = twoSided ? Math.abs(d) : d;
+              pool.hist.add(key);
+              pool.sumAll += key;
+              pool.cntAll++;
+              if (key > m) m = key;
+            }
+            pairs += k - 1;
+            arrs[r2][k] = m > arrs[r2][k - 1] ? m : arrs[r2][k - 1];
+            yield { k: k, r: r2, pairs: pairs };
+          }
+          pool.kProgress = k;
+        }
+        pool.runsComplete += R;
+        pool.batchRuns = 0;
+        pool.batchDone = true;
+        return { done: true, pairs: pairs };
+      })();
+    }
+
+    return { pool: pool, nextBatch: nextBatch };
+  }
+
+  /** 第 k 列的全部轨迹样本（仅含已覆盖 k 的轨迹） */
+  function columnValues(pool, k) {
+    var n = pool.runsComplete + (k <= pool.kProgress ? pool.batchRuns : 0);
+    var out = new Array(n);
+    for (var i = 0; i < n; i++) out[i] = pool.maxRuns[i][k];
+    return out;
+  }
+
+  function quantileSorted(sorted, q) {
+    if (sorted.length === 0) return NaN;
+    var pos = (sorted.length - 1) * q;
+    var lo = Math.floor(pos);
+    var hi = Math.ceil(pos);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  }
+
+  /** 第 k 列跨轨迹聚合：中位数与 IQR */
+  function aggregateColumn(pool, k) {
+    var vals = columnValues(pool, k);
+    vals.sort(function (a, b) {
+      return a - b;
+    });
+    return {
+      n: vals.length,
+      median: quantileSorted(vals, 0.5),
+      q1: quantileSorted(vals, 0.25),
+      q3: quantileSorted(vals, 0.75),
+    };
+  }
+
+  /**
+   * 列切片直方图（密度化）：返回 bins 个 bin 的中心与密度
+   * { xs, ys, n, width }；调用方可自行展开成阶梯线。
+   */
+  function columnHist(pool, k, lo, hi, bins) {
+    var vals = columnValues(pool, k);
+    var width = (hi - lo) / bins;
+    var counts = new Float64Array(bins);
+    for (var i = 0; i < vals.length; i++) {
+      var b = Math.floor((vals[i] - lo) / width);
+      if (b >= 0 && b < bins) counts[b]++;
+    }
+    var n = vals.length || 1;
+    var xs = new Array(bins);
+    var ys = new Array(bins);
+    for (b = 0; b < bins; b++) {
+      xs[b] = lo + (b + 0.5) * width;
+      ys[b] = counts[b] / (n * width);
+    }
+    return { xs: xs, ys: ys, n: vals.length, width: width };
+  }
+
+  /**
+   * 列切片 KDE（高斯核，Silverman 带宽）：在给定网格 xs 上求密度。
+   * 样本 < 2 时返回全零。
+   */
+  function columnKDE(pool, k, xs) {
+    var vals = columnValues(pool, k);
+    var n = vals.length;
+    if (n < 2) {
+      return { h: 0, ys: xs.map(function () { return 0; }), n: n };
+    }
+    var sorted = vals.slice().sort(function (a, b) { return a - b; });
+    var mean = 0;
+    var i;
+    for (i = 0; i < n; i++) mean += sorted[i];
+    mean /= n;
+    var v = 0;
+    for (i = 0; i < n; i++) v += (sorted[i] - mean) * (sorted[i] - mean);
+    var std = Math.sqrt(v / (n - 1));
+    var iqr = quantileSorted(sorted, 0.75) - quantileSorted(sorted, 0.25);
+    var sig = Math.min(std, iqr / 1.34);
+    if (!(sig > 0)) sig = std > 0 ? std : 1;
+    var h = Math.max(0.9 * sig * Math.pow(n, -0.2), 1e-6);
+    var inv = 1 / (h * Math.sqrt(2 * Math.PI) * n);
+    var ys = xs.map(function (x) {
+      var s = 0;
+      for (var j = 0; j < n; j++) {
+        var z = (x - vals[j]) / h;
+        s += Math.exp(-0.5 * z * z);
+      }
+      return inv * s;
+    });
+    return { h: h, ys: ys, n: n };
+  }
+
+  /** 全体点积直方图的密度化视图（内槽中心与密度） */
+  function pairHistDensity(pool) {
+    var hist = pool.hist;
+    var n = pool.cntAll || 1;
+    var bins = hist.bins;
+    var xs = new Array(bins);
+    var ys = new Array(bins);
+    for (var b = 0; b < bins; b++) {
+      xs[b] = hist.lo + (b + 0.5) * hist.width;
+      ys[b] = hist.count[b + 1] / (n * hist.width);
+    }
+    return { xs: xs, ys: ys, n: pool.cntAll, width: hist.width };
+  }
+
+  global.MC = {
+    mulberry32: mulberry32,
+    makeGaussian: makeGaussian,
+    computeKMax: computeKMax,
+    budgetFromProbe: budgetFromProbe,
+    probeMemory: probeMemory,
+    createHist: createHist,
+    createSession: createSession,
+    columnValues: columnValues,
+    aggregateColumn: aggregateColumn,
+    columnHist: columnHist,
+    columnKDE: columnKDE,
+    pairHistDensity: pairHistDensity,
+    TWO_GB: TWO_GB,
+  };
+})(typeof window !== 'undefined' ? window : globalThis);

@@ -32,12 +32,21 @@ K 的调节上限取 $N^2$（多项式增长，$\ln K/N = 2\ln N/N$ 全程较小
 直接用浏览器打开 `index.html` 即可（ECharts 走 CDN，需要联网）。
 如需完全离线，下载 `echarts.min.js` 到本目录并修改 `index.html` 中的 `<script src>`。
 
+控制区可运行**蒙特卡洛模拟**（设计细节见 `monte-carlo-design.md`）：
+流式逐向量推进、时间片可中断，曲线 2 叠加点积直方图（贴合单对 beta 绿线）
+与当前 K 处的 max ρ 模拟密度（贴合蓝线），曲线 1 叠加跨轨迹中位数与 IQR 带
+（贴合理论中位数线）；「追加一批」可持续扩大累计轨迹数 R、收窄统计涨落。
+首次运行会实测可分配内存并据此确定每批规模。
+
 ## 文件结构
 
 - `index.html`：页面骨架
 - `js/theory.js`：纯数学公式层（lgamma、beta 密度、Gumbel 极值分布、分位数），无 DOM 依赖
-- `js/app.js`：UI 状态同步与 ECharts 渲染
+- `js/montecarlo.js`：蒙特卡洛流式模拟层（采样、累积器、generator），无 DOM 依赖
+- `js/app.js`：UI 状态同步、模拟驱动与 ECharts 渲染
 - `css/style.css`：样式
+- `test/mc-selftest.js`：montecarlo.js 的 node 自检（`node test/mc-selftest.js`）
+- `monte-carlo-design.md`：蒙特卡洛功能的设计文档
 
 ---
 
