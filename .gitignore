@@ -20,3 +20,6 @@ output/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# playwright-cli 浏览器验证临时产物
+.playwright-cli/
