@@ -17,7 +17,7 @@ header h1 {
 
 .subtitle {
   margin: 0 0 16px;
-  max-width: 900px;
+  /* max-width: 900px; */
   color: #57606a;
   font-size: 13px;
   line-height: 1.6;
