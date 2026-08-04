@@ -346,7 +346,7 @@
     updateMcButtons();
   }
 
-  // ---- MC 叠加层：曲线 1 ----
+  // ---- MC 叠加层：中位数曲线 ----
   function mcOverlay1() {
     if (!mc.session) return { series: [], legendData: [] };
     const p = mc.session.pool;
@@ -435,7 +435,7 @@
     return pts;
   }
 
-  // ---- MC 叠加层：曲线 2 ----
+  // ---- MC 叠加层：密度曲线 ----
   function mcOverlay2(xLo, xHi) {
     const out = { series: [], legendData: [], note: '' };
     if (!mc.session) return out;
@@ -498,7 +498,7 @@
     return out;
   }
 
-  // ---- 曲线 1：max ρ ~ K ----
+  // ---- 中位数曲线：max ρ ~ K ----
   function renderChart1() {
     const { N, K } = state;
     const kHi = kMax(N);
@@ -583,7 +583,7 @@
     );
   }
 
-  // ---- 曲线 2：给定 (N,K) 的密度 ----
+  // ---- 密度曲线：给定 (N,K) 的密度 ----
   function renderChart2() {
     const { N, K, twoSided } = state;
     const td = theoryData2();
