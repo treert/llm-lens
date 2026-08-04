@@ -47,12 +47,12 @@
 
   /**
    * K 上限：min(内存约束, 运算约束, N²)，至少为 2。
-   * memBytes 为向量内存预算（4·R·K·N 字节），opsBudget 为单批乘加预算
-   * （R·K²·N/2 次）。
+   * 顺序逐条轨迹模型：内存约束为单条轨迹的向量（4·K·N 字节），
+   * opsBudget 为单条轨迹的乘加预算（K²·N/2 次，决定单条耗时）。
    */
-  function computeKMax(N, R, memBytes, opsBudget) {
-    var byMem = Math.floor(memBytes / (4 * R * N));
-    var byOps = Math.floor(Math.sqrt((2 * opsBudget) / (R * N)));
+  function computeKMax(N, memBytes, opsBudget) {
+    var byMem = Math.floor(memBytes / (4 * N));
+    var byOps = Math.floor(Math.sqrt((2 * opsBudget) / N));
     return Math.max(2, Math.min(byMem, byOps, N * N));
   }
 
@@ -108,15 +108,17 @@
   }
 
   /**
-   * 创建模拟会话。
+   * 创建模拟会话（顺序逐条轨迹模型）。
    * cfg: { N, KMax, twoSided, seed }（seed 省略则随机）。
-   * 返回 { pool, nextBatch(R) }：
-   * - pool.maxRuns：每条轨迹的 Float32Array(KMax+1)，[k] = 前 k 个向量的
-   *   运行最大值（k < 2 不用）；
-   * - pool.hist / sumAll / cntAll：全体点积的直方图与总和（跨批累积）；
-   * - pool.kProgress：当前批次已推进的 K；runsComplete：已完成轨迹数；
-   * - nextBatch(R) 返回 generator，每完成一个向量 yield
-   *   { k, r, pairs }，批结束 return { done: true, pairs }。
+   * 返回 { pool, nextTrajectory() }：
+   * - pool.maxRuns：已完成轨迹的完整曲线，每条 Float32Array(KMax+1)，
+   *   [k] = 该轨迹前 k 个向量的运行最大值（k < 2 不用）；
+   * - pool.current：进行中轨迹 { arr, k }（部分曲线也参与聚合）；
+   * - pool.runsTotal：已完成轨迹数；hist / sumAll / cntAll 跨轨迹累积；
+   * - nextTrajectory() 返回单条轨迹的 generator，每完成一个向量 yield
+   *   { k, pairs }，轨迹结束 return { done: true, pairs }，此时曲线入池、
+   *   向量内存随 generator 释放。
+   * 每条轨迹独立 RNG 子流（seed 与轨迹全局序号派生），结果与推进节奏无关。
    */
   function createSession(cfg) {
     var N = cfg.N;
@@ -131,85 +133,89 @@
       twoSided: twoSided,
       seed: seed,
       maxRuns: [],
+      current: null,
+      runsTotal: 0,
       hist: twoSided
         ? createHist(0, 8 * sigma, 512)
         : createHist(-8 * sigma, 8 * sigma, 512),
       sumAll: 0,
       cntAll: 0,
-      kProgress: 1,
-      runsComplete: 0,
-      batchRuns: 0,
-      batchDone: true,
     };
 
-    function nextBatch(R) {
-      if (!pool.batchDone) throw new Error('上一批未结束');
-      pool.batchDone = false;
-      pool.batchRuns = R;
-      pool.kProgress = 1;
-      var base = pool.runsComplete;
-      var vecs = [];
-      var arrs = [];
-      var gauss = [];
-      for (var r = 0; r < R; r++) {
-        vecs.push(new Float32Array(KMax * N));
-        var arr = new Float32Array(KMax + 1);
-        arr[1] = twoSided ? 0 : -Infinity;
-        arrs.push(arr);
-        pool.maxRuns.push(arr);
-        // 每轨迹独立子流：与分批方式无关的确定性（分批池化等价）
-        gauss.push(
-          makeGaussian(mulberry32((seed + Math.imul(base + r + 1, 0x9e3779b9)) >>> 0))
-        );
-      }
+    function nextTrajectory() {
+      if (pool.current) throw new Error('上一条轨迹未结束');
+      var idx = pool.runsTotal; // 轨迹全局序号（独立子流的派生依据）
+      var arr = new Float32Array(KMax + 1);
+      arr[1] = twoSided ? 0 : -Infinity;
+      var cur = { arr: arr, k: 1 };
+      pool.current = cur;
+      var V = new Float32Array(KMax * N);
+      var gauss = makeGaussian(mulberry32((seed + Math.imul(idx + 1, 0x9e3779b9)) >>> 0));
       var pairs = 0;
       return (function* () {
         for (var k = 2; k <= KMax; k++) {
-          for (var r2 = 0; r2 < R; r2++) {
-            var V = vecs[r2];
-            var off = (k - 1) * N;
-            var g = 0;
-            var norm = 0;
-            var j = 0;
-            for (j = 0; j < N; j++) {
-              g = gauss[r2]();
-              V[off + j] = g;
-              norm += g * g;
-            }
-            norm = Math.sqrt(norm);
-            for (j = 0; j < N; j++) V[off + j] /= norm;
-            var m = twoSided ? 0 : -Infinity;
-            for (var pj = 0; pj < k - 1; pj++) {
-              var o2 = pj * N;
-              var d = 0;
-              for (j = 0; j < N; j++) d += V[off + j] * V[o2 + j];
-              var key = twoSided ? Math.abs(d) : d;
-              pool.hist.add(key);
-              pool.sumAll += key;
-              pool.cntAll++;
-              if (key > m) m = key;
-            }
-            pairs += k - 1;
-            arrs[r2][k] = m > arrs[r2][k - 1] ? m : arrs[r2][k - 1];
-            yield { k: k, r: r2, pairs: pairs };
+          var off = (k - 1) * N;
+          var g = 0;
+          var norm = 0;
+          var j = 0;
+          for (j = 0; j < N; j++) {
+            g = gauss();
+            V[off + j] = g;
+            norm += g * g;
           }
-          pool.kProgress = k;
+          norm = Math.sqrt(norm);
+          for (j = 0; j < N; j++) V[off + j] /= norm;
+          var m = twoSided ? 0 : -Infinity;
+          for (var pj = 0; pj < k - 1; pj++) {
+            var o2 = pj * N;
+            var d = 0;
+            for (j = 0; j < N; j++) d += V[off + j] * V[o2 + j];
+            var key = twoSided ? Math.abs(d) : d;
+            pool.hist.add(key);
+            pool.sumAll += key;
+            pool.cntAll++;
+            if (key > m) m = key;
+          }
+          pairs += k - 1;
+          arr[k] = m > arr[k - 1] ? m : arr[k - 1];
+          cur.k = k;
+          yield { k: k, pairs: pairs };
         }
-        pool.runsComplete += R;
-        pool.batchRuns = 0;
-        pool.batchDone = true;
+        pool.maxRuns.push(arr);
+        pool.runsTotal++;
+        pool.current = null;
         return { done: true, pairs: pairs };
       })();
     }
 
-    return { pool: pool, nextBatch: nextBatch };
+    return { pool: pool, nextTrajectory: nextTrajectory };
   }
 
-  /** 第 k 列的全部轨迹样本（仅含已覆盖 k 的轨迹） */
+  /** 已覆盖的最大 K：有完整轨迹即 KMax，否则看进行中轨迹进度 */
+  function coveredK(pool) {
+    if (pool.runsTotal > 0) return pool.KMax;
+    return pool.current ? pool.current.k : 1;
+  }
+
+  /**
+   * 池化数据结构的实际内存账目（字节）：
+   * curves = 曲线池（含进行中轨迹的曲线数组）；hist = 直方图数组。
+   * 进行中轨迹的向量缓冲由调用方另计（4 × KMax × N，生成器闭包内）。
+   */
+  function poolMemoryBytes(pool) {
+    var curves =
+      (pool.runsTotal + (pool.current ? 1 : 0)) * 4 * (pool.KMax + 1);
+    var hist = 2 * (pool.hist.bins + 2) * 8;
+    return { curves: curves, hist: hist };
+  }
+
+  /** 第 k 列的全部轨迹样本（完整轨迹 + 已覆盖 k 的进行中轨迹） */
   function columnValues(pool, k) {
-    var n = pool.runsComplete + (k <= pool.kProgress ? pool.batchRuns : 0);
+    var hasCur = pool.current && k <= pool.current.k;
+    var n = pool.runsTotal + (hasCur ? 1 : 0);
     var out = new Array(n);
-    for (var i = 0; i < n; i++) out[i] = pool.maxRuns[i][k];
+    for (var i = 0; i < pool.runsTotal; i++) out[i] = pool.maxRuns[i][k];
+    if (hasCur) out[n - 1] = pool.current.arr[k];
     return out;
   }
 
@@ -314,6 +320,8 @@
     probeMemory: probeMemory,
     createHist: createHist,
     createSession: createSession,
+    coveredK: coveredK,
+    poolMemoryBytes: poolMemoryBytes,
     columnValues: columnValues,
     aggregateColumn: aggregateColumn,
     columnHist: columnHist,

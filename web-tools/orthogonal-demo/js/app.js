@@ -21,8 +21,8 @@
   const SUB_EXP = 0.05;
   const TRANSITION = 0.25;
 
-  // 单批运算预算（乘加次数，约 10~20 s/批）
-  const OPS_BUDGET = 5e9;
+  // 单条轨迹的默认运算预算（乘加次数；由"单条时长"档位覆盖）
+  const OPS_BUDGET_DEFAULT = 2.5e9;
   // MC 叠加层配色
   const MC_COLOR = '#7c3aed';
   const MC_BAND = 'rgba(124,58,237,0.15)';
@@ -45,7 +45,7 @@
     btnMcStart: document.getElementById('btnMcStart'),
     btnMcPause: document.getElementById('btnMcPause'),
     btnMcReset: document.getElementById('btnMcReset'),
-    selR: document.getElementById('selR'),
+    selOps: document.getElementById('selOps'),
     chkAuto: document.getElementById('chkAuto'),
     chkSeed: document.getElementById('chkSeed'),
     inputSeed: document.getElementById('inputSeed'),
@@ -143,7 +143,7 @@
   // ================= 蒙特卡洛 =================
 
   const mc = {
-    session: null, // MC.createSession 返回 { pool, nextBatch }
+    session: null, // MC.createSession 返回 { pool, nextTrajectory }
     gen: null,
     timer: 0,
     running: false,
@@ -159,11 +159,8 @@
 
   function fmtBytes(b) {
     if (b >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-    return (b / (1024 * 1024)).toFixed(1) + ' MB';
-  }
-
-  function rSelected() {
-    return Number(els.selR.value);
+    if (b >= 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
+    return (b / 1024).toFixed(1) + ' KB';
   }
 
   function seedSelected() {
@@ -172,30 +169,43 @@
     return isFinite(v) ? v >>> 0 : 42;
   }
 
-  /** 当前 (N, R, 预算) 下的 K 上限与每批内存 */
-  function mcPlan(R) {
-    const kM = MC.computeKMax(state.N, R, mc.memBytes, OPS_BUDGET);
-    const bytes = 4 * R * kM * state.N;
-    return { kM: kM, bytes: bytes };
+  /** 实际内存账目：向量缓冲 + 曲线池 + 直方图；附浏览器页面堆（若可用） */
+  function mcMemoryText() {
+    let s = '';
+    if (mc.session) {
+      const p = mc.session.pool;
+      const mem = MC.poolMemoryBytes(p);
+      const vec = mc.gen ? 4 * p.KMax * p.N : 0;
+      s +=
+        ' · 内存 ' + fmtBytes(vec + mem.curves + mem.hist) +
+        '（向量 ' + fmtBytes(vec) + ' + 曲线池 ' + fmtBytes(mem.curves) + '）';
+    }
+    if (window.performance && performance.memory && performance.memory.usedJSHeapSize) {
+      s += ' · 页面堆 ' + fmtBytes(performance.memory.usedJSHeapSize);
+    }
+    return s;
   }
 
-  /** 批次轨迹数钳制：换大 R 追加时不超内存/运算预算 */
-  function clampBatchR(session, R) {
-    const KMax = session.pool.KMax;
-    const byMem = Math.floor(mc.memBytes / (4 * KMax * state.N));
-    const byOps = Math.floor((2 * OPS_BUDGET) / (KMax * KMax * state.N));
-    return Math.max(1, Math.min(R, byMem, byOps));
+  function opsSelected() {
+    const v = Number(els.selOps.value);
+    return isFinite(v) && v > 0 ? v : OPS_BUDGET_DEFAULT;
+  }
+
+  /** 当前 (N, 预算, 单条时长档位) 下的 K 上限与单条轨迹内存 */
+  function mcPlan() {
+    const kM = MC.computeKMax(state.N, mc.memBytes, opsSelected());
+    const bytes = 4 * kM * state.N;
+    return { kM: kM, bytes: bytes };
   }
 
   function updateMcButtons() {
     const hasSession = !!mc.session;
-    const completed = hasSession && mc.session.pool.runsComplete > 0;
-    els.btnMcStart.textContent = completed ? '追加一批' : '开始模拟';
+    const completed = hasSession && mc.session.pool.runsTotal > 0;
+    els.btnMcStart.textContent = completed ? '追加一条' : '开始模拟';
     els.btnMcStart.disabled = mc.running || mc.paused;
     els.btnMcPause.disabled = !(mc.running || mc.paused);
     els.btnMcPause.textContent = mc.paused ? '继续' : '暂停';
     els.btnMcReset.disabled = !hasSession;
-    els.selR.disabled = mc.running || mc.paused;
     els.chkSeed.disabled = mc.running || mc.paused;
     els.inputSeed.disabled = mc.running || mc.paused || !els.chkSeed.checked;
   }
@@ -205,25 +215,24 @@
   }
 
   function mcInfoText() {
-    const R = rSelected();
-    const plan = mcPlan(R);
+    const plan = mcPlan();
     let s =
       '内存预算 <strong>' + fmtBytes(mc.memBytes) + '</strong>' +
       (mc.probed
         ? '（实测峰值 ' + fmtBytes(mc.probedPeak) + ' × 70%）'
         : '（名义值，首次运行时实测）') +
-      '；R=' + R + '/批 → K 上限 ≈ <strong>' + plan.kM.toLocaleString('en-US') + '</strong>' +
-      '（每批内存 ≈ ' + fmtBytes(plan.bytes) + '）';
-    if (mc.session && mc.session.pool.runsComplete > 0) {
+      '；K 上限 ≈ <strong>' + plan.kM.toLocaleString('en-US') + '</strong>' +
+      '（每条轨迹内存 ≈ ' + fmtBytes(plan.bytes) + '）';
+    if (mc.session && mc.session.pool.runsTotal > 0) {
       const p = mc.session.pool;
       const mean = p.cntAll > 0 ? p.sumAll / p.cntAll : 0;
-      const rel = 1.25 * 0.055 / Math.sqrt(p.runsComplete);
+      const rel = 1.25 * 0.055 / Math.sqrt(p.runsTotal);
       s +=
-        '；累计轨迹 <strong class="legend-note note-blue">R=' + p.runsComplete + '</strong>' +
+        '；累计轨迹 <strong class="legend-note note-blue">R=' + p.runsTotal + '</strong>' +
         '（中位数涨落 ≈ ±' + (rel * 100).toFixed(1) + '%）' +
         '；点积均值 ' + mean.toFixed(5) + '（应 ≈ 0）';
     }
-    return s;
+    return s + mcMemoryText();
   }
 
   function resetMc() {
@@ -250,8 +259,7 @@
       return;
     }
     if (!mc.session) {
-      const R = rSelected();
-      const plan = mcPlan(R);
+      const plan = mcPlan();
       mc.session = MC.createSession({
         N: state.N,
         KMax: plan.kM,
@@ -259,9 +267,8 @@
         seed: seedSelected(),
       });
     }
-    const R = clampBatchR(mc.session, rSelected());
-    mc.gen = mc.session.nextBatch(R);
-    mc.totalPairs = (R * mc.session.pool.KMax * (mc.session.pool.KMax - 1)) / 2;
+    mc.gen = mc.session.nextTrajectory();
+    mc.totalPairs = (mc.session.pool.KMax * (mc.session.pool.KMax - 1)) / 2;
     mc.lastPairs = 0;
     mc.batchStart = performance.now();
     mc.running = true;
@@ -289,11 +296,11 @@
     const rate = elapsed > 0.1 ? mc.lastPairs / elapsed : 0;
     const remain = rate > 0 ? (mc.totalPairs - mc.lastPairs) / rate : NaN;
     return (
-      'K=' + p.kProgress + '/' + p.KMax +
-      ' · 累计轨迹 R=' + (p.runsComplete + p.batchRuns) +
-      ' · 本批内存 ≈ ' + fmtBytes(4 * p.batchRuns * p.KMax * p.N) +
-      ' · 已用 ' + elapsed.toFixed(1) + ' s' +
-      (isFinite(remain) ? ' · 预计剩余 ' + remain.toFixed(0) + ' s' : '')
+      '第 ' + (p.runsTotal + 1) + ' 条轨迹 · K=' + (p.current ? p.current.k : 1) + '/' + p.KMax +
+      ' · 已完成 R=' + p.runsTotal +
+      mcMemoryText() +
+      ' · 本条已用 ' + elapsed.toFixed(1) + ' s' +
+      (isFinite(remain) ? ' · 剩余 ≈ ' + remain.toFixed(0) + ' s' : '')
     );
   }
 
@@ -307,10 +314,10 @@
     } while (!res.done && performance.now() - t0 < 30);
 
     if (res.done) {
-      onBatchDone();
+      onTrajectoryDone();
       return;
     }
-    setMcStatus('运行中 ' + mcProgressText());
+    setMcStatus('运行中 · ' + mcProgressText());
     // 帧率节流：最多 ~4fps 重绘
     const now = performance.now();
     if (now - mc.lastFrame > 250) {
@@ -320,16 +327,22 @@
     mc.timer = setTimeout(drive, 0);
   }
 
-  function onBatchDone() {
+  function onTrajectoryDone() {
+    render();
+    if (els.chkAuto.checked) {
+      // 自动追加：曲线入池后立即开始下一条轨迹
+      mc.gen = mc.session.nextTrajectory();
+      mc.totalPairs =
+        (mc.session.pool.KMax * (mc.session.pool.KMax - 1)) / 2;
+      mc.lastPairs = 0;
+      mc.batchStart = performance.now();
+      mc.timer = setTimeout(drive, 0);
+      return;
+    }
     mc.gen = null;
     mc.running = false;
     mc.paused = false;
-    render();
-    if (els.chkAuto.checked) {
-      startMc();
-      return;
-    }
-    setMcStatus('本批完成 · ' + mcInfoText());
+    setMcStatus('本条完成 · ' + mcInfoText());
     updateMcButtons();
   }
 
@@ -337,15 +350,16 @@
   function mcOverlay1() {
     if (!mc.session) return { series: [], legendData: [] };
     const p = mc.session.pool;
-    if (p.kProgress < 2) return { series: [], legendData: [] };
-    const n = MC.columnValues(p, p.kProgress).length;
+    const covered = MC.coveredK(p);
+    if (covered < 2) return { series: [], legendData: [] };
+    const n = MC.columnValues(p, covered).length;
     if (n === 0) return { series: [], legendData: [] };
 
-    // 单条轨迹：画最新一条的原始"破纪录"路径
+    // 仅一条轨迹时：画它的原始"破纪录"路径
     if (n === 1) {
-      const arr = p.maxRuns[p.maxRuns.length - 1];
+      const arr = p.runsTotal > 0 ? p.maxRuns[p.runsTotal - 1] : p.current.arr;
       const path = [];
-      for (let k = 2; k <= p.kProgress; k++) path.push([k, arr[k]]);
+      for (let k = 2; k <= covered; k++) path.push([k, arr[k]]);
       return {
         series: [
           {
@@ -367,9 +381,9 @@
     let last = 1;
     for (let i = 0; i <= S; i++) {
       const k = Math.round(
-        Math.exp(Math.log(2) + (i / S) * (Math.log(p.kProgress) - Math.log(2)))
+        Math.exp(Math.log(2) + (i / S) * (Math.log(covered) - Math.log(2)))
       );
-      if (k > last && k <= p.kProgress) {
+      if (k > last && k <= covered) {
         ks.push(k);
         last = k;
       }
@@ -443,10 +457,11 @@
     }
 
     // ② 当前 K_select 处的 max ρ 模拟密度
-    if (state.K > p.kProgress) {
+    const covered = MC.coveredK(p);
+    if (state.K > covered) {
       out.note =
-        '当前 K=' + state.K + ' 超出模拟进度（K=' + p.kProgress +
-        (p.batchDone && p.kProgress === p.KMax ? '，上限 ' + p.KMax : '') +
+        '当前 K=' + state.K + ' 超出模拟进度（K=' + covered +
+        (p.runsTotal > 0 ? '，上限 ' + p.KMax : '，第 1 条进行中') +
         '），仅显示理论曲线。';
       return out;
     }
@@ -683,12 +698,13 @@
     resetMc(); // 单双侧数据不可换算，清空
     render();
   });
-  els.selR.addEventListener('change', () => {
-    if (!mc.running && !mc.paused) setMcStatus(mcInfoText());
-  });
   els.chkSeed.addEventListener('change', () => {
     els.inputSeed.disabled = !els.chkSeed.checked;
     resetMc(); // 种子口径变化等同重置
+    render();
+  });
+  els.selOps.addEventListener('change', () => {
+    resetMc(); // 单条时长变化会改变 K_max，已有曲线长度不一致，等同重置
     render();
   });
   els.inputSeed.addEventListener('change', () => {

@@ -39,15 +39,15 @@
       <button id="btnMcStart" type="button">开始模拟</button>
       <button id="btnMcPause" type="button" disabled>暂停</button>
       <button id="btnMcReset" type="button" disabled>重置</button>
-      <label for="selR">轨迹/批</label>
-      <select id="selR">
-        <option value="1">1</option>
-        <option value="4">4</option>
-        <option value="16" selected>16</option>
-        <option value="64">64</option>
+      <label for="selOps">单条时长</label>
+      <select id="selOps">
+        <option value="250000000">快速（K 覆盖小）</option>
+        <option value="2500000000" selected>标准</option>
+        <option value="10000000000">宽覆盖</option>
+        <option value="40000000000">超宽覆盖</option>
       </select>
       <label for="chkAuto">
-        <input id="chkAuto" type="checkbox" />
+        <input id="chkAuto" type="checkbox" checked />
         自动追加
       </label>
       <label for="chkSeed">
