@@ -96,7 +96,16 @@
         },
         legend: { bottom: 0 },
         grid: { left: 60, right: 30, top: 50, bottom: 60 },
-        xAxis: { type: 'log', name: 'K（向量个数）', min: 2, max: kHi },
+        xAxis: {
+          type: 'log',
+          name: 'K（向量个数）',
+          min: 2,
+          max: kHi,
+          // K 是整数计数；log 轴末端刻度由 10^log10(N²) 反算，带浮点尾数，需取整
+          axisLabel: {
+            formatter: (v) => Math.round(v).toLocaleString('en-US'),
+          },
+        },
         yAxis: { type: 'value', name: 'max ρ', min: 0 },
         series: [
           {
@@ -189,7 +198,16 @@
         },
         legend: { bottom: 0 },
         grid: { left: 60, right: 30, top: 50, bottom: 60 },
-        xAxis: { type: 'value', name: 'ρ（点乘）', min: xLo, max: xHi },
+        xAxis: {
+          type: 'value',
+          name: 'ρ（点乘）',
+          min: xLo,
+          max: xHi,
+          // 轴端点默认显示 xHi 的完整浮点精度；限制为 3 位有效数字并去尾零
+          axisLabel: {
+            formatter: (v) => String(Number(v.toPrecision(3))),
+          },
+        },
         yAxis: { type: 'value', name: '密度', min: 0 },
         series: [
           {
