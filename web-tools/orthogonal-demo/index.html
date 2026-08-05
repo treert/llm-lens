@@ -9,7 +9,10 @@
 </head>
 <body>
   <header>
-    <h1>高维随机向量：最小夹角 / 最大点乘</h1>
+    <div class="header-row">
+      <h1>高维随机向量：最小夹角 / 最大点乘</h1>
+      <p class="mc-status" id="mcStatus"></p>
+    </div>
     <p class="subtitle">
       N 维单位球面上均匀随机取 K 个向量，考察两两点乘的最大值（= 最小夹角的余弦）。
       理论：Cai–Fan–Jiang (2013), <em>Distributions of Angles in Random Packing on Spheres</em>。
@@ -56,7 +59,6 @@
       </label>
       <input id="inputSeed" type="number" value="42" step="1" disabled />
     </div>
-    <p class="mc-status" id="mcStatus"></p>
   </section>
 
   <main>

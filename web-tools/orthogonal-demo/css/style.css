@@ -15,6 +15,18 @@ header h1 {
   font-size: 22px;
 }
 
+/* 页头首行：蒙特卡洛状态贴着标题右侧，留少量空白 */
+.header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+}
+
+.header-row h1 {
+  margin: 0;
+  white-space: nowrap;
+}
+
 .subtitle {
   margin: 0 0 16px;
   /* max-width: 900px; */
@@ -128,12 +140,12 @@ header h1 {
 }
 
 .mc-status {
-  flex-basis: 100%;
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 12px;
   color: #57606a;
   line-height: 1.6;
   min-height: 1.2em;
+  text-align: right;
 }
 
 main {
