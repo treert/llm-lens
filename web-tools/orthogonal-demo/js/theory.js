@@ -171,6 +171,17 @@
   }
 
   /**
+   * 单对"近似正交"概率：把 |ρ| < t 当作正交，两个随机向量近似正交的概率
+   * P(|ρ| ≤ t) = 1 − I_{1−t²}((N−1)/2, 1/2)（t ≥ 0；精确，只依赖 N）。
+   * 大 N 近似 2Φ(t√N) − 1（ρ ≈ N(0,1/N)，t = 3/√N 时已 ≈ 99.7%）。
+   */
+  function pairAbsDotCDF(t, N) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return 1 - regIncBeta(1 - t * t, (N - 1) / 2, 0.5);
+  }
+
+  /**
    * 单对点乘的对数 CDF：log F(t)。
    * t ≥ 0 时用 log1p(−half) 计算 log(1−half)：当 half ~ 1/M ~ 1e-16 接近
    * 机器精度时，直接算 1−half 会被量化成 eps 的整数倍，再被 (M−1)·logF
@@ -250,6 +261,7 @@
     centering,
     regIncBeta,
     pairDotCDF,
+    pairAbsDotCDF,
     pairDotLogCDF,
     maxDotLogCDFBeta,
     maxDotCDFBeta,

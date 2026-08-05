@@ -117,7 +117,7 @@
     return cache1;
   }
 
-  const cache2 = { key: '', xLo: 0, xHi: 0, maxDotGumbel: null, maxDotBeta: null, singlePair: null };
+  const cache2 = { key: '', xLo: 0, xHi: 0, maxDotGumbel: null, maxDotBeta: null, singlePair: null, probPair: null, probMax: null };
   function theoryData2() {
     const { N, K, twoSided } = state;
     const key = N + '|' + K + '|' + twoSided;
@@ -136,6 +136,8 @@
     const maxDotGumbel = [];
     const maxDotBeta = [];
     const singlePair = [];
+    const probPair = [];
+    const probMax = [];
     for (let i = 0; i <= samples; i++) {
       const r = xLo + (i / samples) * (xHi - xLo);
       maxDotGumbel.push([r, T.maxDotDensity(r, N, K, twoSided)]);
@@ -143,6 +145,10 @@
       // 双侧模式下对比基线应为单个 |ρ| 的密度：负半轴折叠到正半轴，高度翻倍
       const g = T.pairDotDensity(r, N);
       singlePair.push([r, twoSided ? 2 * g : g]);
+      // 右轴近似正交概率：始终按 |ρ|（双侧）口径，与单双侧开关无关；
+      // r ≤ 0 时概率为 0（保持网格一致，axis tip 负半段也能显示该系列）
+      probPair.push([r, r > 0 ? T.pairAbsDotCDF(r, N) : 0]);
+      probMax.push([r, r > 0 ? T.maxDotCDFBeta(r, N, K, true) : 0]);
     }
     cache2.key = key;
     cache2.xLo = xLo;
@@ -152,6 +158,8 @@
     cache2.maxDotGumbel = maxDotGumbel;
     cache2.maxDotBeta = maxDotBeta;
     cache2.singlePair = singlePair;
+    cache2.probPair = probPair;
+    cache2.probMax = probMax;
     return cache2;
   }
 
@@ -673,7 +681,7 @@
           left: 'center',
           textStyle: { fontSize: 14 },
         },
-        // 系列顺序：F^M(蓝)、Gumbel(黄)、单对(绿)
+        // 系列顺序：F^M(蓝)、Gumbel(黄)、单对(绿)；两条正交概率曲线自带显式配色
         color: ['#2563eb', '#eab308', '#2ca02c'],
         tooltip: {
           trigger: 'axis',
@@ -683,15 +691,20 @@
             let html =
               'ρ = ' + rho.toFixed(4) + '（θ≈' + rhoToDeg(rho).toFixed(2) + '°）';
             for (const p of params) {
+              const v = Number(p.value[1]);
+              if (!isFinite(v)) continue;
+              // 正交概率曲线在右轴（0~1），按百分比显示
+              const isProb = p.seriesName.indexOf('正交概率') >= 0;
               html +=
                 '<br/>' + p.marker + p.seriesName + '：' +
-                Number(p.value[1]).toFixed(3);
+                (isProb ? (v * 100).toFixed(2) + '%' : v.toFixed(3));
             }
             return html;
           },
         },
-        legend: { bottom: 0 },
-        grid: { left: 60, right: 30, top: 45, bottom: 45 },
+        legend: { bottom: 0, type: 'scroll' },
+        // 右侧概率轴占位：right 由 30 加宽到 56
+        grid: { left: 60, right: 56, top: 45, bottom: 45 },
         xAxis: [
           {
             type: 'value',
@@ -724,7 +737,21 @@
           },
         ],
         // 轴名放中部：顶部要留给角度副轴的 90° 端点标签
-        yAxis: { type: 'value', name: '密度', nameLocation: 'middle', nameGap: 40, min: 0 },
+        yAxis: [
+          { type: 'value', name: '密度', nameLocation: 'middle', nameGap: 40, min: 0 },
+          // 右侧概率轴（0~1）：近似正交概率曲线专用
+          {
+            type: 'value',
+            name: '概率',
+            nameLocation: 'middle',
+            nameGap: 32,
+            position: 'right',
+            min: 0,
+            max: 1,
+            splitLine: { show: false },
+            axisLabel: { formatter: (v) => String(Number(v.toFixed(1))) },
+          },
+        ],
         series: [
           {
             name: 'max ρ 密度（F^M，beta 幂次）',
@@ -762,6 +789,26 @@
                 { xAxis: 3 / Math.sqrt(N), label: { formatter: '3σ' } },
               ],
             },
+          },
+          // 近似正交概率曲线（右轴）：把 |ρ| < t 当作正交；始终双侧口径，
+          // 与 UI 单双侧开关无关。数据网格与密度系列一致（负半轴为 0）
+          {
+            name: 'P(|ρ|≤t) 单对正交概率',
+            type: 'line',
+            showSymbol: false,
+            yAxisIndex: 1,
+            color: '#dc2626',
+            lineStyle: { width: 2 },
+            data: td.probPair,
+          },
+          {
+            name: 'P(max|ρ|≤t) 全部正交概率',
+            type: 'line',
+            showSymbol: false,
+            yAxisIndex: 1,
+            color: '#0d9488',
+            lineStyle: { width: 2 },
+            data: td.probMax,
           },
         ].concat(mcOv.series),
       },

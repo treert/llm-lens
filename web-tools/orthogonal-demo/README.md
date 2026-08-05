@@ -6,7 +6,10 @@
   三条线对比：F^M（beta 幂次，全 K 适用）、Gumbel 渐近、一阶近似 `√(2·lnM/N)`
   （双侧 `√(2·ln(2M)/N)`）。
 - **密度曲线**：给定 (N, K)，max ρ 的分布密度（F^M 与 Gumbel 渐近两条），叠加单对点乘的
-  精确 beta 密度作对比；单侧且 K 小时横轴自动扩展到负半轴。
+  精确 beta 密度作对比；单侧且 K 小时横轴自动扩展到负半轴。右纵轴（概率轴，0~1）叠加
+  两条**近似正交概率**曲线——把 $|\rho| < t$ 当作"正交"：单对 $P(|\rho|\le t)$
+  （精确，只依赖 N）与 $P(\max|\rho|\le t)$（K 个向量全部两两近似正交的概率，
+  即 F^M 双侧 CDF）。
 
 理论来源：Cai, Fan, Jiang, *Distributions of Angles in Random Packing on Spheres*,
 JMLR 14 (2013), arXiv:1306.0256。
@@ -35,6 +38,8 @@ K 的调节上限取 $N^2$（多项式增长，$\ln K/N = 2\ln N/N$ 全程较小
 
 两张图除 ρ 主轴外均带**角度副轴**（中位数曲线右侧、密度曲线顶部，
 θ = arccos(ρ)，ρ = 0 对应 90°），tooltip 悬浮也同时显示 ρ 与对应夹角。
+密度曲线另有**右侧概率纵轴**（0~1），供两条近似正交概率曲线使用
+（tooltip 中该两系列按百分比显示）。
 
 控制区可运行**蒙特卡洛模拟**（设计细节见 `monte-carlo-design.md`）：
 顺序逐条轨迹流式推进、时间片可中断，密度曲线叠加点积直方图（贴合单对 beta
@@ -80,6 +85,12 @@ $$g(\rho) = \frac{\Gamma(N/2)}{\sqrt{\pi}\,\Gamma\!\left(\frac{N-1}{2}\right)}\,
 - 几何意义：$P(\rho > t)$ 就是球面被一个球冠截取的面积占比；因子 $(1-\rho^2)^{(N-3)/2}$
   表明 N 越大，质量越向"赤道"（$\rho=0$，即 90°）集中——这是"高维近乎正交"的根源。
 - 大 N 近似：$\rho \approx \mathcal N(0,\,1/N)$，即标准差 $\sigma \approx 1/\sqrt{N}$。
+- **近似正交概率**（密度曲线右轴的红线）：把 $|\rho| < t$ 当作"正交"，两个随机向量
+  近似正交的概率有精确式
+  $$P(|\rho| \le t) = 1 - I_{1-t^2}\!\left(\tfrac{N-1}{2}, \tfrac12\right)
+  \;\approx\; 2\Phi(t\sqrt N) - 1 \quad (N \gg 1)$$
+  它只依赖 N：$t = 3\sigma \approx 3/\sqrt N$ 时已 ≈ 99.7%——"高维随机向量近乎正交"
+  的定量表述（`theory.js` 的 `pairAbsDotCDF`）。
 - 实现细节（`theory.js`）：归一化常数用 Lanczos 近似的 `lgamma` 在对数域计算，
   避免 N 很大时 $\Gamma$ 函数溢出。
 
@@ -102,6 +113,11 @@ $$f_{\max}(t) = M\,F(t)^{M-1} g(t) \quad\text{（单侧）}, \qquad
 f_{\max}(t) = 2M\,\bigl(2F(t)-1\bigr)^{M-1} g(t) \quad\text{（双侧）}$$
 
 分位数通过对 CDF 二分求逆得到（`maxDotQuantileBeta`）。
+
+双侧 CDF 还有一个读法：$P(\max|\rho| \le t)$ 就是 **K 个向量全部两两近似正交**
+（所有 $|\rho_{ij}| < t$）的概率——密度曲线右轴的青线（"正交"按 $|\rho|$ 口径，
+总是双侧，与界面的单双侧开关无关）。它与红线的差距体现取极值的代价：K 越大，
+要保证全部 M 对都"正交"，阈值 t 就得放得越宽。
 
 **实现细节（大 K 精度）**：峰值处 $1-F(t) \sim 1/M$，K 很大时可小至 $10^{-16}$，
 接近 float64 机器精度（$\varepsilon \approx 2.2\times10^{-16}$）。此时直接算
