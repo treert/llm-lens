@@ -152,21 +152,29 @@
       var V = new Float32Array(KMax * N);
       var gauss = makeGaussian(mulberry32((seed + Math.imul(idx + 1, 0x9e3779b9)) >>> 0));
       var pairs = 0;
+      /** 采样一个单位球面高斯向量，写入 V 的 [off, off+N) 槽位 */
+      function fillVector(off) {
+        var g = 0;
+        var norm = 0;
+        var j = 0;
+        for (j = 0; j < N; j++) {
+          g = gauss();
+          V[off + j] = g;
+          norm += g * g;
+        }
+        norm = Math.sqrt(norm);
+        for (j = 0; j < N; j++) V[off + j] /= norm;
+      }
+      // 第 0 个向量在循环外采样：k 循环只填槽位 1..KMax-1，
+      // 槽位 0 若留零，所有 pj=0 的点积恒为 0（直方图 0 处出尖峰）
+      fillVector(0);
       return (function* () {
         for (var k = 2; k <= KMax; k++) {
           var off = (k - 1) * N;
-          var g = 0;
-          var norm = 0;
-          var j = 0;
-          for (j = 0; j < N; j++) {
-            g = gauss();
-            V[off + j] = g;
-            norm += g * g;
-          }
-          norm = Math.sqrt(norm);
-          for (j = 0; j < N; j++) V[off + j] /= norm;
+          fillVector(off);
           var m = twoSided ? 0 : -Infinity;
           var n4 = N - (N % 4);
+          var j = 0;
           for (var pj = 0; pj < k - 1; pj++) {
             var o2 = pj * N;
             // 4 路展开累加（实测吞吐 ~+25%），余数尾部顺序处理

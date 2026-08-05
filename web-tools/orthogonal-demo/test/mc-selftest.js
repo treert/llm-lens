@@ -61,6 +61,18 @@ console.log('[2] K=2 单侧中位数 ≈ 0（顺序 256 条轨迹）');
   const agg = MC.aggregateColumn(s.pool, 2);
   check('n=256', agg.n === 256, 'n=' + agg.n);
   check('|median| < 0.01', Math.abs(agg.median) < 0.01, 'median=' + agg.median);
+  // 回归：首槽向量必须真实采样（曾留零导致 K=2 列恒为 0、直方图 0 处尖峰）
+  const vals = MC.columnValues(s.pool, 2);
+  let vmean = 0;
+  for (const v of vals) vmean += v;
+  vmean /= vals.length;
+  let vvar = 0;
+  for (const v of vals) vvar += (v - vmean) * (v - vmean);
+  vvar /= vals.length - 1;
+  const sigma2 = 1 / 1024;
+  check('K=2 列样本方差 ≈ σ²=1/N（首向量非零）',
+    vvar > sigma2 / 4 && vvar < sigma2 * 4,
+    'var=' + vvar.toExponential(3) + ' σ²=' + sigma2.toExponential(3));
 }
 
 // ---------- 3 & 4. 直方图均值 ≈ 0；跨轨迹中位数 vs F^M ----------

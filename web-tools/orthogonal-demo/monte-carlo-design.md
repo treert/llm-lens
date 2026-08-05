@@ -62,6 +62,7 @@ v3 的优势：
       sumAll, cntAll                  // 全局点积和与计数
       maxRuns[]，runsTotal            // 已完成轨迹曲线池
 
+采样 V[1]（循环外；漏掉则首槽全零，所有 j=1 的点积恒为 0）
 for k = 2 .. K_max:
   v = 采样单位向量(N) → V[k]          // 高斯归一化，见 §3
   m = -inf
