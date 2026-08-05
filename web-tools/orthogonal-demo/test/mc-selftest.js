@@ -36,12 +36,6 @@ function runTrajectories(session, n) {
 console.log('[1] 预算函数与 K 上限');
 {
   const MB = 1024 * 1024;
-  check('probe 峰值 0 -> 兜底 256MB', MC.budgetFromProbe(0) === 256 * MB);
-  check('probe 峰值 1GB -> 0.7GB', MC.budgetFromProbe(1024 * MB) === 0.7 * 1024 * MB);
-  check(
-    'probe 峰值 10GB -> 封顶 2GB',
-    MC.budgetFromProbe(10 * 1024 * MB) === 2 * 1024 * MB
-  );
   const k1 = MC.computeKMax(1024, 2 * 1024 * MB, 2.5e9);
   check('computeKMax(1024,2GB,2.5e9)=2209（运算封顶）', k1 === 2209, 'got ' + k1);
   const k2 = MC.computeKMax(8192, 256 * MB, 1e15);

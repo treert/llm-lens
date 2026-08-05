@@ -10,7 +10,6 @@
 (function (global) {
   'use strict';
 
-  var MB = 1024 * 1024;
   var TWO_GB = 2 * 1024 * 1024 * 1024;
 
   /** mulberry32：32 位可设种子的轻量 PRNG */
@@ -54,36 +53,6 @@
     var byMem = Math.floor(memBytes / (4 * N));
     var byOps = Math.floor(Math.sqrt((2 * opsBudget) / N));
     return Math.max(2, Math.min(byMem, byOps, N * N));
-  }
-
-  /** probe 峰值 → 真实预算：min(峰值 × 70%, 2GB)；峰值过小回退 256MB */
-  function budgetFromProbe(peakBytes) {
-    if (!isFinite(peakBytes) || peakBytes < 64 * MB) return 256 * MB;
-    return Math.min(peakBytes * 0.7, TWO_GB);
-  }
-
-  /**
-   * 渐进分配实测可提交内存（仅浏览器首次运行时调用）。
-   * 每 4KB 页写 1 字节防止惰性提交假阳性；失败或达上限即停。
-   * 返回峰值字节数；缓冲区在返回后由 GC 回收。
-   */
-  function probeMemory(opts) {
-    opts = opts || {};
-    var chunk = opts.chunkBytes || 64 * MB;
-    var cap = opts.capBytes || 4 * 1024 * MB;
-    var bufs = [];
-    var total = 0;
-    try {
-      while (total + chunk <= cap) {
-        var b = new Uint8Array(chunk);
-        for (var p = 0; p < b.length; p += 4096) b[p] = 1;
-        bufs.push(b);
-        total += chunk;
-      }
-    } catch (e) {
-      /* 分配失败即到达上限 */
-    }
-    return total;
   }
 
   /** 点积槽位直方图：bins 个等宽内槽 + 首尾两个开口槽；每槽存 sum 与 count */
@@ -336,8 +305,6 @@
     mulberry32: mulberry32,
     makeGaussian: makeGaussian,
     computeKMax: computeKMax,
-    budgetFromProbe: budgetFromProbe,
-    probeMemory: probeMemory,
     createHist: createHist,
     createSession: createSession,
     coveredK: coveredK,

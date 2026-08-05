@@ -171,9 +171,7 @@
     timer: 0,
     running: false,
     paused: false,
-    probed: false,
-    probedPeak: -1,
-    memBytes: MC.TWO_GB,
+    memBytes: MC.TWO_GB, // 固定 2 GB 名义上限（早期版本曾首跑实测，已移除）
     batchStart: 0,
     lastPairs: 0,
     totalPairs: 0,
@@ -248,10 +246,7 @@
   function mcInfoText() {
     const plan = mcPlan();
     let s =
-      '内存预算 <strong>' + fmtBytes(mc.memBytes) + '</strong>' +
-      (mc.probed
-        ? '（实测峰值 ' + fmtBytes(mc.probedPeak) + ' × 70%）'
-        : '（名义值，首次运行时实测）') +
+      '内存预算 <strong>' + fmtBytes(mc.memBytes) + '</strong>（固定上限）' +
       '；K 上限 ≈ <strong>' + plan.kM.toLocaleString('en-US') + '</strong>' +
       '（每条轨迹内存 ≈ ' + fmtBytes(plan.bytes) + '）';
     if (mc.session && mc.session.pool.runsTotal > 0) {
@@ -280,17 +275,6 @@
   }
 
   function startMc() {
-    if (!mc.probed) {
-      // 首次运行：先实测可分配内存（同步 ~0.5-2 s），再开批
-      setMcStatus('正在探测可用内存…');
-      setTimeout(() => {
-        mc.probedPeak = MC.probeMemory();
-        mc.memBytes = MC.budgetFromProbe(mc.probedPeak);
-        mc.probed = true;
-        startMc();
-      }, 50);
-      return;
-    }
     if (!mc.session) {
       const plan = mcPlan();
       mc.session = MC.createSession({
