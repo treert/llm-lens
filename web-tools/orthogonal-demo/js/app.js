@@ -706,6 +706,18 @@
             showSymbol: false,
             smooth: true,
             data: td.singlePair,
+            // σ 参考线：单对点乘标准差 1/√N 的 1/2/3 倍处画竖线
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              lineStyle: { type: 'dashed', color: '#999' },
+              label: { position: 'insideEndTop', color: '#999', fontSize: 11 },
+              data: [
+                { xAxis: 1 / Math.sqrt(N), label: { formatter: 'σ' } },
+                { xAxis: 2 / Math.sqrt(N), label: { formatter: '2σ' } },
+                { xAxis: 3 / Math.sqrt(N), label: { formatter: '3σ' } },
+              ],
+            },
           },
         ].concat(mcOv.series),
       },
