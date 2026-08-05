@@ -667,6 +667,9 @@
             data: logData(td.betaMedian),
             markLine: {
               silent: true,
+              // markLine 不参与新旧数据的差值过渡，每次 setOption 都重建；
+              // 不关动画的话 MC 流式重绘时竖线会反复播入场动画
+              animation: false,
               symbol: 'none',
               lineStyle: { type: 'dashed', color: '#999' },
               label: { formatter: 'K = ' + K, position: 'insideEndTop' },
@@ -799,6 +802,8 @@
             // σ 参考线：单对点乘标准差 1/√N 的 1/2/3 倍处画竖线
             markLine: {
               silent: true,
+              // 同 chart1：markLine 每次 setOption 都重建，关闭入场动画防闪烁
+              animation: false,
               symbol: 'none',
               lineStyle: { type: 'dashed', color: '#999' },
               label: { position: 'insideEndTop', color: '#999', fontSize: 11 },
