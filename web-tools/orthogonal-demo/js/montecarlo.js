@@ -45,14 +45,16 @@
   }
 
   /**
-   * K 上限：min(内存约束, 运算约束, N²)，至少为 2。
+   * K 上限：min(内存约束, 运算约束, N³)，至少为 2。
    * 顺序逐条轨迹模型：内存约束为单条轨迹的向量（4·K·N 字节），
    * opsBudget 为单条轨迹的乘加预算（K²·N/2 次，决定单条耗时）。
+   * N³ 与 UI 的 K 滑块上限一致（曾是 N²，滑块扩到 N³ 后小 N 下
+   * 各档位的运算约束全被 N² 截平，如 N=64 时高档位都变成 4096）。
    */
   function computeKMax(N, memBytes, opsBudget) {
     var byMem = Math.floor(memBytes / (4 * N));
     var byOps = Math.floor(Math.sqrt((2 * opsBudget) / N));
-    return Math.max(2, Math.min(byMem, byOps, N * N));
+    return Math.max(2, Math.min(byMem, byOps, N * N * N));
   }
 
   /** 点积槽位直方图：bins 个等宽内槽 + 首尾两个开口槽；每槽存 sum 与 count */

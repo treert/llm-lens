@@ -118,7 +118,10 @@ K_max 变化）：快速 $2.5\times10^8$ / 标准 $2.5\times10^9$（默认）/
 $$K_{\max} = \min\Bigl\lfloor
   \frac{B_{\text{mem}}}{4N},\;
   \sqrt{\frac{2C_{\text{ops}}}{N}},\;
-  N^2 \Bigr\rfloor,\qquad K_{\max} \ge 2$$
+  N^3 \Bigr\rfloor,\qquad K_{\max} \ge 2$$
+
+（硬上限与 K 滑块一致取 N³；曾取 N²，滑块扩到 N³ 后未同步，导致
+N=64 时三个高档位的运算约束全被 N²=4096 截平。）
 
 默认下 K_max 被**运算预算**封顶（单条轨迹内存仅 MB 级，内存永不沾边），
 标准档示例：
