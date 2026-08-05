@@ -92,18 +92,25 @@
     if (cache1.key === key) return cache1;
     const kHi = kMax(N);
     const samples = 160;
+    // 整数 K 网格（去重）：模拟叠加层复用同一网格，
+    // 保证 axis 触发的 tooltip 中理论与模拟严格同 K 全部显示
+    const ks = [];
+    for (let i = 0; i <= samples; i++) {
+      const k = Math.round(
+        Math.exp(Math.log(2) + (i / samples) * (Math.log(kHi) - Math.log(2)))
+      );
+      if (ks.length === 0 || k > ks[ks.length - 1]) ks.push(k);
+    }
     const firstOrder = [];
     const gumbelMedian = [];
     const betaMedian = [];
-    for (let i = 0; i <= samples; i++) {
-      const k = Math.exp(
-        Math.log(2) + (i / samples) * (Math.log(kHi) - Math.log(2))
-      );
+    for (const k of ks) {
       firstOrder.push([k, T.firstOrderMean(N, k, twoSided)]);
       gumbelMedian.push([k, T.maxDotQuantile(0.5, N, k, twoSided)]);
       betaMedian.push([k, T.maxDotQuantileBeta(0.5, N, k, twoSided)]);
     }
     cache1.key = key;
+    cache1.ks = ks;
     cache1.firstOrder = firstOrder;
     cache1.gumbelMedian = gumbelMedian;
     cache1.betaMedian = betaMedian;
@@ -140,6 +147,8 @@
     cache2.key = key;
     cache2.xLo = xLo;
     cache2.xHi = xHi;
+    // 理论系列的 x 网格：模拟叠加层插值到同一网格，保证 tip 全程同 ρ 显示
+    cache2.xs = maxDotBeta.map((p) => p[0]);
     cache2.maxDotGumbel = maxDotGumbel;
     cache2.maxDotBeta = maxDotBeta;
     cache2.singlePair = singlePair;
@@ -366,8 +375,8 @@
     updateMcButtons();
   }
 
-  // ---- MC 叠加层：中位数曲线 ----
-  function mcOverlay1() {
+  // ---- MC 叠加层：中位数曲线（ksAll 复用理论曲线的整数 K 网格） ----
+  function mcOverlay1(ksAll) {
     if (!mc.session) return { series: [], legendData: [] };
     const p = mc.session.pool;
     const covered = MC.coveredK(p);
@@ -395,19 +404,10 @@
       };
     }
 
-    // 多条轨迹：对数抽稀 K 点，跨轨迹中位数 + IQR 带（n ≥ 8 时）
+    // 多条轨迹：与理论曲线同一整数 K 网格（≤ covered 部分），
+    // 跨轨迹中位数 + IQR 带（n ≥ 8 时）；网格一致 tip 才能同 K 全显
     const ks = [];
-    const S = 160;
-    let last = 1;
-    for (let i = 0; i <= S; i++) {
-      const k = Math.round(
-        Math.exp(Math.log(2) + (i / S) * (Math.log(covered) - Math.log(2)))
-      );
-      if (k > last && k <= covered) {
-        ks.push(k);
-        last = k;
-      }
-    }
+    for (const k of ksAll) if (k >= 2 && k <= covered) ks.push(k);
     const med = [];
     const q1 = [];
     const q3 = [];
@@ -446,17 +446,8 @@
     return { series: series, legendData: legendData };
   }
 
-  // 阶梯线展开：bin 中心序列 → 平顶阶梯点列
-  function toStepPairs(xs, ys, width) {
-    const pts = [];
-    for (let i = 0; i < xs.length; i++) {
-      pts.push([xs[i] - width / 2, ys[i]], [xs[i] + width / 2, ys[i]]);
-    }
-    return pts;
-  }
-
-  // ---- MC 叠加层：密度曲线 ----
-  function mcOverlay2(xLo, xHi) {
+  // ---- MC 叠加层：密度曲线（xsTheory 复用理论曲线的 x 网格） ----
+  function mcOverlay2(xLo, xHi, xsTheory) {
     const out = { series: [], legendData: [], note: '' };
     if (!mc.session) return out;
     const p = mc.session.pool;
@@ -464,6 +455,16 @@
     // ① 点积直方图（K 无关，跨批累积）
     if (p.cntAll > 0) {
       const h = MC.pairHistDensity(p);
+      // 阶梯直方图按 bin 取值映射到理论网格（x 与其他系列严格一致，
+      // 否则 axis tip 以最近数据点为锚，网格不同的系列整行缺失）
+      const lo = h.xs[0] - h.width / 2;
+      const nb = h.ys.length;
+      const data = xsTheory.map((x) => {
+        let b = Math.floor((x - lo) / h.width);
+        if (b < 0) b = 0;
+        else if (b >= nb) b = nb - 1;
+        return [x, h.ys[b]];
+      });
       out.series.push({
         name: '模拟点积直方图（M=' + p.cntAll.toExponential(1) + ' 对）',
         type: 'line',
@@ -471,7 +472,7 @@
         color: MC_HIST,
         lineStyle: { width: 1.5 },
         areaStyle: { opacity: 0.08 },
-        data: toStepPairs(h.xs, h.ys, h.width),
+        data: data,
       });
       out.legendData.push(out.series[out.series.length - 1].name);
     }
@@ -491,10 +492,21 @@
       return out;
     }
     if (n >= 32) {
+      // KDE 在 121 点粗网格求值（成本 O(n×121)），再线性插值到理论曲线
+      // 的网格：高斯核光滑，插值无损观感；x 严格一致，tip 全程显示模拟行
       const grid = [];
       for (let i = 0; i <= 120; i++) grid.push(xLo + (i / 120) * (xHi - xLo));
       const kde = MC.columnKDE(p, state.K, grid);
-      const data = grid.map((x, i) => [x, kde.ys[i]]);
+      const step = (xHi - xLo) / 120;
+      const data = xsTheory.map((x) => {
+        let t = (x - xLo) / step;
+        if (t < 0) t = 0;
+        else if (t > 120) t = 120;
+        const i0 = Math.floor(t);
+        const i1 = i0 >= 120 ? 120 : i0 + 1;
+        const f = t - i0;
+        return [x, kde.ys[i0] * (1 - f) + kde.ys[i1] * f];
+      });
       out.series.push({
         name: '模拟 max ρ 密度（K=' + state.K + ', n=' + n + ', KDE）',
         type: 'line',
@@ -505,13 +517,20 @@
       });
     } else {
       const h = MC.columnHist(p, state.K, xLo, xHi, 24);
+      // 阶梯直方图按 bin 取值映射到理论网格（x 一致，tip 全程显示）
+      const data = xsTheory.map((x) => {
+        let b = Math.floor((x - xLo) / h.width);
+        if (b < 0) b = 0;
+        else if (b > 23) b = 23;
+        return [x, h.ys[b]];
+      });
       out.series.push({
         name: '模拟 max ρ 直方图（K=' + state.K + ', n=' + n + '）',
         type: 'line',
         showSymbol: false,
         color: MC_COLOR,
         lineStyle: { width: 1.5 },
-        data: toStepPairs(h.xs, h.ys, h.width),
+        data: data,
       });
     }
     out.legendData.push(out.series[out.series.length - 1].name);
@@ -534,7 +553,7 @@
         ? [[{ xAxis: kThreshold }, { xAxis: kHi }]]
         : [];
 
-    const mcOv = mcOverlay1();
+    const mcOv = mcOverlay1(td.ks);
 
     chart1.setOption(
       {
@@ -543,11 +562,21 @@
         color: ['#ff7f0e', '#2563eb', '#eab308'],
         tooltip: {
           trigger: 'axis',
-          // 本图系列值均为 ρ，顺带显示对应夹角
-          valueFormatter: (v) =>
-            typeof v === 'number'
-              ? v.toFixed(4) + '（θ≈' + rhoToDeg(v).toFixed(2) + '°）'
-              : v,
+          // 理论与模拟系列共享同一整数 K 网格（theoryData1.ks），
+          // axis 触发下同 K 全部显示；IQR 带是闭合多边形（每个 K 两个点），不进 tip
+          formatter: (params) => {
+            let html =
+              'K = ' + Math.round(params[0].axisValue).toLocaleString('en-US');
+            for (const p of params) {
+              if (p.seriesName.indexOf('IQR') >= 0) continue;
+              const v = p.value[1];
+              if (typeof v !== 'number') continue;
+              html +=
+                '<br/>' + p.marker + p.seriesName + '：' +
+                v.toFixed(4) + '（θ≈' + rhoToDeg(v).toFixed(2) + '°）';
+            }
+            return html;
+          },
         },
         legend: { bottom: 0 },
         grid: { left: 60, right: 40, top: 30, bottom: 45 },
@@ -635,7 +664,7 @@
   function renderChart2() {
     const { N, K, twoSided } = state;
     const td = theoryData2();
-    const mcOv = mcOverlay2(td.xLo, td.xHi);
+    const mcOv = mcOverlay2(td.xLo, td.xHi, td.xs);
 
     chart2.setOption(
       {
