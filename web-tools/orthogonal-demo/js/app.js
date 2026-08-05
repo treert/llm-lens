@@ -12,9 +12,9 @@
   const N_MIN = 64;
   const N_MAX = 8192;
 
-  // K 上限：N²（多项式增长，lnK/N = 2lnN/N 全程保持在次指数区域）
+  // K 上限：N³（多项式增长，lnK/N = 3lnN/N 全程保持在次指数区域）
   function kMax(N) {
-    return N * N;
+    return N * N * N;
   }
   // 渐近区域阈值：lnK/N 小于 SUB_EXP 视为次指数区域（理论线可信），
   // 大于 TRANSITION 视为超出定理覆盖范围
@@ -554,14 +554,24 @@
     // 右侧角度副轴的范围据此换算
     const yMax = 1.05 * T.firstOrderMean(N, kHi, state.twoSided);
 
+    // ECharts log 轴在跨度 ~12 个数量级时只生成个位数刻度，且
+    // customValues / interval / splitNumber 对 log 轴均无效（5.5.0 实测）；
+    // 改用 value 轴 + 数据 x 手动取 log10(K)，刻度间隔 interval:1（每个数量级一个）
+    const lg = Math.log10;
+    const logData = (data) => data.map((p) => [lg(p[0]), p[1]]);
+
     // lnK/N > SUB_EXP 的区间铺浅灰背景：此区域理论线开始偏离
     const kThreshold = Math.exp(SUB_EXP * N);
     const markAreaData =
       kThreshold < kHi
-        ? [[{ xAxis: kThreshold }, { xAxis: kHi }]]
+        ? [[{ xAxis: lg(kThreshold) }, { xAxis: lg(kHi) }]]
         : [];
 
     const mcOv = mcOverlay1(td.ks);
+    // MC 叠加层数据同样是 [K, ρ]，统一做 log10 变换
+    const mcSeries = mcOv.series.map((s) =>
+      Object.assign({}, s, { data: logData(s.data) })
+    );
 
     chart1.setOption(
       {
@@ -571,10 +581,11 @@
         tooltip: {
           trigger: 'axis',
           // 理论与模拟系列共享同一整数 K 网格（theoryData1.ks），
-          // axis 触发下同 K 全部显示；IQR 带是闭合多边形（每个 K 两个点），不进 tip
+          // axis 触发下同 K 全部显示；IQR 带是闭合多边形（每个 K 两个点），不进 tip。
+          // 横轴是 log10(K)，显示时还原为 K（round 吸收浮点尾数）
           formatter: (params) => {
             let html =
-              'K = ' + Math.round(params[0].axisValue).toLocaleString('en-US');
+              'K = ' + Math.round(Math.pow(10, Number(params[0].axisValue))).toLocaleString('en-US');
             for (const p of params) {
               if (p.seriesName.indexOf('IQR') >= 0) continue;
               const v = p.value[1];
@@ -589,17 +600,25 @@
         legend: { bottom: 0 },
         grid: { left: 60, right: 40, top: 30, bottom: 45 },
         xAxis: {
-          type: 'log',
+          // 名义上是对数刻度：坐标值 = log10(K)（见上面 lg/logData 变换）
+          type: 'value',
           name: 'K（向量个数）',
           // 轴名在刻度数值行之下、右对齐收于轴端内侧：
           // nameGap 对 end 放置不生效，用 verticalAlign top + padding 下移；
           // padding 右侧留白与右轴 90° 标签隔开
           nameTextStyle: { align: 'right', verticalAlign: 'top', padding: [24, 0, 0, 0] },
-          min: 2,
-          max: kHi,
-          // K 是整数计数；log 轴末端刻度由 10^log10(N²) 反算，带浮点尾数，需取整
+          // min 取 log 空间整数（K=1）：value 轴 interval 网格从 min 起对齐，
+          // 这样 interval:1 的刻度恰好落在每个数量级上（数据从 K=2 起，
+          // 左端空出 0.3 个数量级可忽略）
+          min: 0,
+          max: lg(kHi),
+          // 每个数量级一个刻度；刻度值为整数 log10(K)，标签还原为 K 的整数码
+          interval: 1,
           axisLabel: {
-            formatter: (v) => Math.round(v).toLocaleString('en-US'),
+            formatter: (v) => Math.round(Math.pow(10, v)).toLocaleString('en-US'),
+            // 右端点（K 上限）标签贴轴缘会被截断，且位数随 N 变化，直接隐藏；
+            // 上限可在控件输入框看到
+            showMaxLabel: false,
           },
         },
         yAxis: [
@@ -626,7 +645,7 @@
             type: 'line',
             showSymbol: false,
             smooth: true,
-            data: td.firstOrder,
+            data: logData(td.firstOrder),
             markArea: {
               silent: true,
               itemStyle: { color: 'rgba(0,0,0,0.045)' },
@@ -645,13 +664,13 @@
             type: 'line',
             showSymbol: false,
             smooth: true,
-            data: td.betaMedian,
+            data: logData(td.betaMedian),
             markLine: {
               silent: true,
               symbol: 'none',
               lineStyle: { type: 'dashed', color: '#999' },
               label: { formatter: 'K = ' + K, position: 'insideEndTop' },
-              data: [{ xAxis: K }],
+              data: [{ xAxis: lg(K) }],
             },
           },
           {
@@ -660,9 +679,9 @@
             showSymbol: false,
             smooth: true,
             lineStyle: { type: 'dashed' },
-            data: td.gumbelMedian,
+            data: logData(td.gumbelMedian),
           },
-        ].concat(mcOv.series),
+        ].concat(mcSeries),
       },
       { notMerge: true }
     );

@@ -93,16 +93,34 @@ header h1 {
   white-space: nowrap;
 }
 
-.control input[type="range"] {
+/* K 滑杆组：basis 较大，宽屏下挤不开时与 MC 控制组分行，
+   滑杆随窗口宽度弹性伸长（K 跨 ~12 个数量级，需要精细定位） */
+.control-slider {
+  flex: 1 1 460px;
+}
+
+.control-slider input[type="range"] {
+  flex: 1;
+  width: auto;
+  min-width: 200px;
+}
+
+/* N 只有 64~8192（约 2 个数量级），滑杆固定小宽度即可 */
+#sliderN {
   width: 220px;
 }
 
 .control input[type="number"] {
-  width: 90px;
+  width: 64px;
   padding: 4px 6px;
   border: 1px solid #d0d7de;
   border-radius: 6px;
   font-size: 14px;
+}
+
+/* K 上限 N³（8192³ ≈ 5.5e11，12 位数字），输入框需要更宽 */
+#inputK {
+  width: 130px;
 }
 
 .control-mc {
