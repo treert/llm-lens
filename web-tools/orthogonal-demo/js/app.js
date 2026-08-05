@@ -35,6 +35,11 @@
     return { cls: 'note-red', text: '超出定理覆盖范围' };
   }
 
+  // ρ → 夹角度数；clamp 防御 acos 定义域（浮点尾数可能微超 ±1）
+  function rhoToDeg(r) {
+    return (Math.acos(Math.max(-1, Math.min(1, r))) * 180) / Math.PI;
+  }
+
   const els = {
     sliderN: document.getElementById('sliderN'),
     inputN: document.getElementById('inputN'),
@@ -503,6 +508,9 @@
     const { N, K } = state;
     const kHi = kMax(N);
     const td = theoryData1();
+    // y 轴显式上限：一阶近似全程为最高线（README §5.3），×1.05 吸收模拟涨落；
+    // 右侧角度副轴的范围据此换算
+    const yMax = 1.05 * T.firstOrderMean(N, kHi);
 
     // lnK/N > SUB_EXP 的区间铺浅灰背景：此区域理论线开始偏离
     const kThreshold = Math.exp(SUB_EXP * N);
@@ -520,13 +528,21 @@
         color: ['#ff7f0e', '#2563eb', '#eab308'],
         tooltip: {
           trigger: 'axis',
-          valueFormatter: (v) => (typeof v === 'number' ? v.toFixed(4) : v),
+          // 本图系列值均为 ρ，顺带显示对应夹角
+          valueFormatter: (v) =>
+            typeof v === 'number'
+              ? v.toFixed(4) + '（θ≈' + rhoToDeg(v).toFixed(2) + '°）'
+              : v,
         },
         legend: { bottom: 0 },
-        grid: { left: 60, right: 30, top: 50, bottom: 60 },
+        grid: { left: 60, right: 40, top: 30, bottom: 45 },
         xAxis: {
           type: 'log',
           name: 'K（向量个数）',
+          // 轴名在刻度数值行之下、右对齐收于轴端内侧：
+          // nameGap 对 end 放置不生效，用 verticalAlign top + padding 下移；
+          // padding 右侧留白与右轴 90° 标签隔开
+          nameTextStyle: { align: 'right', verticalAlign: 'top', padding: [24, 0, 0, 0] },
           min: 2,
           max: kHi,
           // K 是整数计数；log 轴末端刻度由 10^log10(N²) 反算，带浮点尾数，需取整
@@ -534,7 +550,24 @@
             formatter: (v) => Math.round(v).toLocaleString('en-US'),
           },
         },
-        yAxis: { type: 'value', name: 'max ρ', min: 0 },
+        yAxis: [
+          // 显式 max 是浮点数，ECharts 会在轴顶端画出原始 max 标签，隐藏之
+          { type: 'value', name: 'max ρ', min: 0, max: yMax, axisLabel: { showMaxLabel: false } },
+          // 右侧角度副轴：θ=arccos(ρ) 非线性，但本图 |ρ| 范围内近线性，
+          // 端点严格对齐（ρ=0 ↔ 90°），中间刻度像素偏差 <0.5%；
+          // inverse 下 nameLocation 'start' 使轴名落在顶端（避免与 x 轴名相撞）
+          {
+            type: 'value',
+            name: '夹角 θ(°)',
+            nameLocation: 'start',
+            position: 'right',
+            min: rhoToDeg(yMax),
+            max: 90,
+            inverse: true,
+            splitLine: { show: false },
+            axisLabel: { formatter: (v) => String(Number(v.toFixed(1))) },
+          },
+        ],
         series: [
           {
             name: '一阶近似 2√(lnK/N)',
@@ -600,21 +633,54 @@
         color: ['#2563eb', '#eab308', '#2ca02c'],
         tooltip: {
           trigger: 'axis',
-          valueFormatter: (v) => (typeof v === 'number' ? v.toFixed(3) : v),
-        },
-        legend: { bottom: 0 },
-        grid: { left: 60, right: 30, top: 50, bottom: 60 },
-        xAxis: {
-          type: 'value',
-          name: 'ρ（点乘）',
-          min: td.xLo,
-          max: td.xHi,
-          // 轴端点默认显示 xHi 的完整浮点精度；限制为 3 位有效数字并去尾零
-          axisLabel: {
-            formatter: (v) => String(Number(v.toPrecision(3))),
+          // 角度对应横轴 ρ，valueFormatter 管不到，自定义整行
+          formatter: (params) => {
+            const rho = Number(params[0].axisValue);
+            let html =
+              'ρ = ' + rho.toFixed(4) + '（θ≈' + rhoToDeg(rho).toFixed(2) + '°）';
+            for (const p of params) {
+              html +=
+                '<br/>' + p.marker + p.seriesName + '：' +
+                Number(p.value[1]).toFixed(3);
+            }
+            return html;
           },
         },
-        yAxis: { type: 'value', name: '密度', min: 0 },
+        legend: { bottom: 0 },
+        grid: { left: 60, right: 30, top: 45, bottom: 45 },
+        xAxis: [
+          {
+            type: 'value',
+            name: 'ρ（点乘）',
+            // 轴名在刻度数值行之下、右对齐收于轴端内侧（同中位数曲线的处理）
+            nameTextStyle: { align: 'right', verticalAlign: 'top', padding: [24, 0, 0, 0] },
+            min: td.xLo,
+            max: td.xHi,
+            // 轴端点默认显示 xHi 的完整浮点精度；限制为 3 位有效数字并去尾零
+            axisLabel: {
+              formatter: (v) => String(Number(v.toPrecision(3))),
+            },
+          },
+          // 顶部角度副轴：ρ 越大 θ 越小，inverse 使角度左大右小；
+          // 单侧小 K 时左端 >90°（负 ρ），符合几何事实
+          {
+            type: 'value',
+            name: '夹角 θ(°)',
+            // 轴名在右端、刻度行上方（与中位数曲线角度轴名同侧）：inverse 下
+            // 'start' 即视觉右端；start/end 放置时 nameGap 不生效、轴名贴轴线，
+            // 用 verticalAlign bottom + padding 抬到刻度行上方
+            nameLocation: 'start',
+            nameTextStyle: { align: 'right', verticalAlign: 'bottom', padding: [0, 0, 26, 0] },
+            position: 'top',
+            min: rhoToDeg(td.xHi),
+            max: rhoToDeg(td.xLo),
+            inverse: true,
+            splitLine: { show: false },
+            axisLabel: { formatter: (v) => String(Number(v.toFixed(1))) },
+          },
+        ],
+        // 轴名放中部：顶部要留给角度副轴的 90° 端点标签
+        yAxis: { type: 'value', name: '密度', nameLocation: 'middle', nameGap: 40, min: 0 },
         series: [
           {
             name: 'max ρ 密度（F^M，beta 幂次）',
@@ -649,7 +715,7 @@
     const med = T.maxDotQuantileBeta(0.5, N, K, twoSided);
     const medGumbel = T.maxDotQuantile(0.5, N, K, twoSided);
     const first = T.firstOrderMean(N, K);
-    const angleDeg = ((Math.acos(Math.max(-1, Math.min(1, med))) * 180) / Math.PI).toFixed(2);
+    const angleDeg = rhoToDeg(med).toFixed(2);
     const regime = regimeOf(N, K);
     els.stats.innerHTML =
       'max ρ 中位数：<strong class="legend-note note-blue">F^M ≈ ' + med.toFixed(4) + '</strong>' +
