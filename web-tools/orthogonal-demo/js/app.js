@@ -51,6 +51,7 @@
     btnMcPause: document.getElementById('btnMcPause'),
     btnMcReset: document.getElementById('btnMcReset'),
     selOps: document.getElementById('selOps'),
+    selRuns: document.getElementById('selRuns'),
     chkAuto: document.getElementById('chkAuto'),
     chkSeed: document.getElementById('chkSeed'),
     inputSeed: document.getElementById('inputSeed'),
@@ -196,6 +197,12 @@
     return isFinite(v) && v > 0 ? v : OPS_BUDGET_DEFAULT;
   }
 
+  /** 轨迹数上限：0 表示不限。上限只约束追加，不清空已有数据 */
+  function runsLimit() {
+    const v = Number(els.selRuns.value);
+    return v > 0 ? v : Infinity;
+  }
+
   /** 当前 (N, 预算, 单条时长档位) 下的 K 上限与单条轨迹内存 */
   function mcPlan() {
     const kM = MC.computeKMax(state.N, mc.memBytes, opsSelected());
@@ -206,8 +213,10 @@
   function updateMcButtons() {
     const hasSession = !!mc.session;
     const completed = hasSession && mc.session.pool.runsTotal > 0;
+    const limReached =
+      hasSession && mc.session.pool.runsTotal >= runsLimit();
     els.btnMcStart.textContent = completed ? '追加一条' : '开始模拟';
-    els.btnMcStart.disabled = mc.running || mc.paused;
+    els.btnMcStart.disabled = mc.running || mc.paused || limReached;
     els.btnMcPause.disabled = !(mc.running || mc.paused);
     els.btnMcPause.textContent = mc.paused ? '继续' : '暂停';
     els.btnMcReset.disabled = !hasSession;
@@ -230,10 +239,12 @@
       '（每条轨迹内存 ≈ ' + fmtBytes(plan.bytes) + '）';
     if (mc.session && mc.session.pool.runsTotal > 0) {
       const p = mc.session.pool;
+      const lim = runsLimit();
       const mean = p.cntAll > 0 ? p.sumAll / p.cntAll : 0;
       const rel = 1.25 * 0.055 / Math.sqrt(p.runsTotal);
       s +=
-        '；累计轨迹 <strong class="legend-note note-blue">R=' + p.runsTotal + '</strong>' +
+        '；累计轨迹 <strong class="legend-note note-blue">R=' +
+        p.runsTotal + (isFinite(lim) ? '/' + lim : '') + '</strong>' +
         '（中位数涨落 ≈ ±' + (rel * 100).toFixed(1) + '%）' +
         '；点积均值 ' + mean.toFixed(5) + '（应 ≈ 0）';
     }
@@ -334,8 +345,9 @@
 
   function onTrajectoryDone() {
     render();
-    if (els.chkAuto.checked) {
-      // 自动追加：曲线入池后立即开始下一条轨迹
+    const lim = runsLimit();
+    if (els.chkAuto.checked && mc.session.pool.runsTotal < lim) {
+      // 自动追加：曲线入池后立即开始下一条轨迹（受轨迹数上限约束）
       mc.gen = mc.session.nextTrajectory();
       mc.totalPairs =
         (mc.session.pool.KMax * (mc.session.pool.KMax - 1)) / 2;
@@ -347,7 +359,10 @@
     mc.gen = null;
     mc.running = false;
     mc.paused = false;
-    setMcStatus('本条完成 · ' + mcInfoText());
+    setMcStatus(
+      (mc.session.pool.runsTotal >= lim ? '已达轨迹上限 · ' : '本条完成 · ') +
+        mcInfoText()
+    );
     updateMcButtons();
   }
 
@@ -784,6 +799,11 @@
   els.selOps.addEventListener('change', () => {
     resetMc(); // 单条时长变化会改变 K_max，已有曲线长度不一致，等同重置
     render();
+  });
+  els.selRuns.addEventListener('change', () => {
+    // 轨迹上限是控制参数：只影响后续追加，不清空已有数据
+    updateMcButtons();
+    setMcStatus(mcInfoText());
   });
   els.inputSeed.addEventListener('change', () => {
     resetMc();
