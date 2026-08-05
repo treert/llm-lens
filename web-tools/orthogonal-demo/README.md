@@ -79,7 +79,7 @@ $$g(\rho) = \frac{\Gamma(N/2)}{\sqrt{\pi}\,\Gamma\!\left(\frac{N-1}{2}\right)}\,
 - 等价表述：$\rho^2 \sim \mathrm{Beta}\!\left(\tfrac12, \tfrac{N-1}{2}\right)$。
 - 几何意义：$P(\rho > t)$ 就是球面被一个球冠截取的面积占比；因子 $(1-\rho^2)^{(N-3)/2}$
   表明 N 越大，质量越向"赤道"（$\rho=0$，即 90°）集中——这是"高维近乎正交"的根源。
-- 大 N 近似：$\rho \approx \mathcal N(0,\,1/N)$，即散布 $\sigma \approx 1/\sqrt{N}$。
+- 大 N 近似：$\rho \approx \mathcal N(0,\,1/N)$，即标准差 $\sigma \approx 1/\sqrt{N}$。
 - 实现细节（`theory.js`）：归一化常数用 Lanczos 近似的 `lgamma` 在对数域计算，
   避免 N 很大时 $\Gamma$ 函数溢出。
 

@@ -722,7 +722,7 @@
       '，<strong class="legend-note note-yellow">Gumbel ≈ ' + medGumbel.toFixed(4) + '</strong>' +
       '；<strong class="legend-note note-orange">一阶近似（众数口径）≈ ' + first.toFixed(4) + '</strong>' +
       '；对应最小夹角 ≈ <strong class="legend-note note-gray">' + angleDeg + '°</strong>。' +
-      '单对 ρ 的散布 σ ≈ 1/√N ≈ ' + (1 / Math.sqrt(N)).toFixed(4) + '。' +
+      '单对 ρ 的标准差 σ ≈ 1/√N ≈ ' + (1 / Math.sqrt(N)).toFixed(4) + '。' +
       ' lnK/N = ' + (Math.log(K) / N).toFixed(4) +
       ' <strong class="legend-note ' + regime.cls + '">' + regime.text + '</strong>' +
       (mcOv.note ? ' <strong class="legend-note note-gray">' + mcOv.note + '</strong>' : '');
