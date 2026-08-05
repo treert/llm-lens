@@ -98,7 +98,7 @@
       const k = Math.exp(
         Math.log(2) + (i / samples) * (Math.log(kHi) - Math.log(2))
       );
-      firstOrder.push([k, T.firstOrderMean(N, k)]);
+      firstOrder.push([k, T.firstOrderMean(N, k, twoSided)]);
       gumbelMedian.push([k, T.maxDotQuantile(0.5, N, k, twoSided)]);
       betaMedian.push([k, T.maxDotQuantileBeta(0.5, N, k, twoSided)]);
     }
@@ -510,7 +510,7 @@
     const td = theoryData1();
     // y 轴显式上限：一阶近似全程为最高线（README §5.3），×1.05 吸收模拟涨落；
     // 右侧角度副轴的范围据此换算
-    const yMax = 1.05 * T.firstOrderMean(N, kHi);
+    const yMax = 1.05 * T.firstOrderMean(N, kHi, state.twoSided);
 
     // lnK/N > SUB_EXP 的区间铺浅灰背景：此区域理论线开始偏离
     const kThreshold = Math.exp(SUB_EXP * N);
@@ -570,7 +570,7 @@
         ],
         series: [
           {
-            name: '一阶近似 2√(lnK/N)',
+            name: state.twoSided ? '一阶近似 √(2·ln(2M)/N)' : '一阶近似 √(2·lnM/N)',
             type: 'line',
             showSymbol: false,
             smooth: true,
@@ -714,7 +714,7 @@
 
     const med = T.maxDotQuantileBeta(0.5, N, K, twoSided);
     const medGumbel = T.maxDotQuantile(0.5, N, K, twoSided);
-    const first = T.firstOrderMean(N, K);
+    const first = T.firstOrderMean(N, K, twoSided);
     const angleDeg = rhoToDeg(med).toFixed(2);
     const regime = regimeOf(N, K);
     els.stats.innerHTML =

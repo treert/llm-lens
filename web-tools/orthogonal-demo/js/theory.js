@@ -89,11 +89,15 @@
   }
 
   /**
-   * 一阶近似：E[max ρ] ≈ 2√(lnK / N)。
-   * 由 M≈K²/2 对近似独立 N(0,1/N) 取最大值的经典极值启发式。
+   * 一阶近似：max ρ ≈ √(2·lnM / N)，M = K(K−1)/2。
+   * 由 M 对近似独立 N(0,1/N) 取最大值的经典极值启发式（"期望超标次数 = 1"）。
+   * 双侧 max|ρ| 的超标事件为 |ρ|>t，正负两条对称尾巴 ⇒ 期望次数 2M·p，
+   * 故 lnM 换成 ln(2M)；t² 上恰好多一个 2ln2/N 平移，与 Gumbel 的 κ 翻倍同源。
+   * 旧写法 2√(lnK/N) 丢掉了 lnM = 2lnK − ln2 中的 −ln2，恰好 ≈ 双侧式。
    */
-  function firstOrderMean(N, K) {
-    return 2 * Math.sqrt(Math.log(K) / N);
+  function firstOrderMean(N, K, twoSided) {
+    const M = (K * (K - 1)) / 2;
+    return Math.sqrt((2 * Math.log(twoSided ? 2 * M : M)) / N);
   }
 
   // ================= 方案 A：F_beta^M 近似（全 K 范围） =================
