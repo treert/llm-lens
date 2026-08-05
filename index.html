@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Lens · 可视化工具</title>
+  <style>
+    :root {
+      --accent: #4f6ef7;
+      --accent-soft: #eef1fe;
+      --text: #1f2430;
+      --text-dim: #6b7280;
+      --card-bg: #ffffff;
+      --border: #e6e8f0;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 500px at 80% -10%, #dfe6ff 0%, transparent 60%),
+        radial-gradient(900px 400px at 10% -10%, #e8f0ff 0%, transparent 55%),
+        #f7f8fc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .wrap {
+      width: min(880px, 92vw);
+      margin: 0 auto;
+      flex: 1;
+    }
+    header {
+      padding: 72px 0 40px;
+    }
+    .eyebrow {
+      display: inline-block;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid #d9e1fd;
+      border-radius: 999px;
+      padding: 4px 14px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .subtitle {
+      margin-top: 12px;
+      color: var(--text-dim);
+      font-size: 15px;
+      line-height: 1.8;
+      max-width: 640px;
+    }
+    .tool-list {
+      list-style: none;
+      display: grid;
+      gap: 16px;
+      padding-bottom: 64px;
+    }
+    .tool-card a {
+      display: block;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px 28px;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+      position: relative;
+    }
+    .tool-card a:hover {
+      transform: translateY(-3px);
+      border-color: #c7d2fb;
+      box-shadow: 0 12px 32px rgba(79, 110, 247, 0.12);
+    }
+    .tool-card h2 {
+      font-size: 19px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tool-card h2 .arrow {
+      margin-left: auto;
+      color: var(--accent);
+      font-weight: 400;
+      transition: transform 0.18s ease;
+    }
+    .tool-card a:hover .arrow { transform: translateX(4px); }
+    .tool-card p {
+      margin-top: 10px;
+      color: var(--text-dim);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+    .tags {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tag {
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-radius: 6px;
+      padding: 2px 10px;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 20px 0 28px;
+      font-size: 13px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="eyebrow">LLM LENS</span>
+      <h1>可视化工具集</h1>
+      <p class="subtitle">
+        从原理层面理解 LLM 学习项目的配套交互式小工具：
+        把论文和教科书里的结论，变成看得见、调得动的直观现象。
+      </p>
+    </header>
+
+    <main>
+      <ul class="tool-list">
+        <li class="tool-card">
+          <a href="web-tools/orthogonal-demo/">
+            <h2>高维随机向量：最小夹角 / 最大点乘<span class="arrow">→</span></h2>
+            <p>
+              在 N 维单位球面上均匀随机取 K 个向量，考察两两点乘的最大值（即最小夹角的余弦）。
+              蒙特卡洛模拟与 Cai–Fan–Jiang (2013) 理论曲线对照，直观感受"高维空间中随机向量近乎正交"。
+            </p>
+            <div class="tags">
+              <span class="tag">蒙特卡洛模拟</span>
+              <span class="tag">高维几何</span>
+              <span class="tag">理论对照</span>
+            </div>
+          </a>
+        </li>
+      </ul>
+    </main>
+  </div>
+
+  <footer>
+    <div class="wrap">
+      llm-lens · 源码见 <a href="https://github.com/treert/llm-lens">GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>
