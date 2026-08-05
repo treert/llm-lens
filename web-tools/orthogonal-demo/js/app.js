@@ -92,14 +92,21 @@
     if (cache1.key === key) return cache1;
     const kHi = kMax(N);
     const samples = 160;
-    // 整数 K 网格（去重）：模拟叠加层复用同一网格，
-    // 保证 axis 触发的 tooltip 中理论与模拟严格同 K 全部显示
+    // 整数 K 网格：模拟叠加层复用同一网格，
+    // 保证 axis 触发的 tooltip 中理论与模拟严格同 K 全部显示。
+    // 分段布局：K ≤ kDense 每个整数一个点（tip 可锚定小 K 段的每个 K，
+    // 避免对数步长 <1 时取整去重跳点）；K > kDense 对数等距 160 点，
+    // 在对数轴上视觉均匀
+    const kDense = 100;
     const ks = [];
-    for (let i = 0; i <= samples; i++) {
+    for (let k = 2; k <= kDense; k++) ks.push(k);
+    for (let i = 1; i <= samples; i++) {
       const k = Math.round(
-        Math.exp(Math.log(2) + (i / samples) * (Math.log(kHi) - Math.log(2)))
+        Math.exp(
+          Math.log(kDense) + (i / samples) * (Math.log(kHi) - Math.log(kDense))
+        )
       );
-      if (ks.length === 0 || k > ks[ks.length - 1]) ks.push(k);
+      if (k > ks[ks.length - 1]) ks.push(k);
     }
     const firstOrder = [];
     const gumbelMedian = [];
@@ -540,8 +547,15 @@
 
     // ECharts log 轴在跨度 ~12 个数量级时只生成个位数刻度，且
     // customValues / interval / splitNumber 对 log 轴均无效（5.5.0 实测）；
-    // 改用 value 轴 + 数据 x 手动取 log10(K)，刻度间隔 interval:1（每个数量级一个）
-    const lg = Math.log10;
+    // 改用 value 轴 + 数据 x 手动取对数，刻度间隔 interval:1（每个数量级一个）。
+    // 坐标取 log10(KK)，KK=K-1 为虚拟变量：K=2 时 KK=1，min=0 恰好对应
+    // 数据起点，左端不留空白；整数刻度对应 KK=10^d，标签还原为 K=KK+1
+    // （2, 11, 101, …；非整数码，但符合"坐标轴是 KK"的事实）。
+    // （min 直接取 log10(2) 不行：实测 interval 刻度从 min 起排且吸附到
+    // 0.1 精度，会落在 1.3/2.3/… 上，标签变成 1995/19953/… 非整数码）
+    const lg = (k) => Math.log10(k - 1);
+    // 轴坐标 → K 的还原（round 吸收浮点尾数）
+    const kAt = (v) => Math.round(Math.pow(10, v)) + 1;
     const logData = (data) => data.map((p) => [lg(p[0]), p[1]]);
 
     // lnK/N > SUB_EXP 的区间铺浅灰背景：此区域理论线开始偏离
@@ -566,10 +580,10 @@
           trigger: 'axis',
           // 理论与模拟系列共享同一整数 K 网格（theoryData1.ks），
           // axis 触发下同 K 全部显示；IQR 带是闭合多边形（每个 K 两个点），不进 tip。
-          // 横轴是 log10(K)，显示时还原为 K（round 吸收浮点尾数）
+          // 横轴坐标是 log10(K-1)，显示时用 kAt 还原为 K
           formatter: (params) => {
             let html =
-              'K = ' + Math.round(Math.pow(10, Number(params[0].axisValue))).toLocaleString('en-US');
+              'K = ' + kAt(Number(params[0].axisValue)).toLocaleString('en-US');
             for (const p of params) {
               if (p.seriesName.indexOf('IQR') >= 0) continue;
               const v = p.value[1];
@@ -591,15 +605,14 @@
           // nameGap 对 end 放置不生效，用 verticalAlign top + padding 下移；
           // padding 右侧留白与右轴 90° 标签隔开
           nameTextStyle: { align: 'right', verticalAlign: 'top', padding: [24, 0, 0, 0] },
-          // min 取 log 空间整数（K=1）：value 轴 interval 网格从 min 起对齐，
-          // 这样 interval:1 的刻度恰好落在每个数量级上（数据从 K=2 起，
-          // 左端空出 0.3 个数量级可忽略）
+          // min=0 即 KK=1、K=2（数据起点，见上面 KK=K-1 说明）；
+          // interval 网格从 min 起对齐，整数刻度恰好对应 KK=10^d
           min: 0,
           max: lg(kHi),
-          // 每个数量级一个刻度；刻度值为整数 log10(K)，标签还原为 K 的整数码
+          // 每个数量级一个刻度；标签用 kAt 还原为 K 的整数码
           interval: 1,
           axisLabel: {
-            formatter: (v) => Math.round(Math.pow(10, v)).toLocaleString('en-US'),
+            formatter: (v) => kAt(v).toLocaleString('en-US'),
             // 右端点（K 上限）标签贴轴缘会被截断，且位数随 N 变化，直接隐藏；
             // 上限可在控件输入框看到
             showMaxLabel: false,
