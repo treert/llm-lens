@@ -244,6 +244,63 @@
     return Math.exp(logf);
   }
 
+  // ---------- 卡方分位数（‖x‖² 的中位数参考线用；中位数无闭式解，需数值反解） ----------
+
+  /**
+   * 正则化下不完全伽马函数 P(a, x) = γ(a,x)/Γ(a)，a > 0，x ≥ 0。
+   * Numerical Recipes 标准做法：x < a+1 用级数展开，否则用 Lentz 连分式算 Q=1−P。
+   */
+  function gammaP(a, x) {
+    if (x <= 0) return 0;
+    var gln = lgamma(a);
+    if (x < a + 1) {
+      var ap = a;
+      var sum = 1 / a;
+      var del = sum;
+      for (var n = 0; n < 100000; n++) {
+        ap += 1;
+        del *= x / ap;
+        sum += del;
+        if (Math.abs(del) < Math.abs(sum) * 1e-15) break;
+      }
+      return sum * Math.exp(-x + a * Math.log(x) - gln);
+    }
+    var b = x + 1 - a;
+    var c = 1e300;
+    var d = 1 / b;
+    var h = d;
+    for (var i = 1; i < 100000; i++) {
+      var an = -i * (i - a);
+      b += 2;
+      d = an * d + b;
+      if (Math.abs(d) < 1e-300) d = 1e-300;
+      c = b + an / c;
+      if (Math.abs(c) < 1e-300) c = 1e-300;
+      d = 1 / d;
+      var delta = d * c;
+      h *= delta;
+      if (Math.abs(delta - 1) < 1e-15) break;
+    }
+    return 1 - Math.exp(-x + a * Math.log(x) - gln) * h;
+  }
+
+  /**
+   * χ²(k) 的 p 分位数：对单调递增的 P(k/2, x/2) 二分反解，必然收敛。
+   * 上界从 max(k,1) 起倍增扩张直到包住 p。
+   */
+  function chiSquareQuantile(p, k) {
+    var lo = 0;
+    var hi = Math.max(k, 1);
+    while (gammaP(k / 2, hi / 2) < p) hi *= 2;
+    for (var i = 0; i < 100; i++) {
+      if (hi - lo < 1e-13 * Math.max(hi, 1)) break;
+      var mid = (lo + hi) / 2;
+      if (gammaP(k / 2, mid / 2) < p) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
   // ---------- 运算描述表：label、理论矩、密度、建议画图范围（mean±6std 口径） ----------
 
   /**
@@ -329,6 +386,8 @@
       color: '#b91c1c',
       mean: function (D, sigma) { return D * sigma * sigma; },
       variance: function (D, sigma) { return 2 * D * Math.pow(sigma, 4); },
+      // 中位数 < 均值（右偏）：数值反解；大 D 时 ≈ Dσ²(1−2/(9D))³ → 均值（趋正态）
+      median: function (D, sigma) { return sigma * sigma * chiSquareQuantile(0.5, D); },
       pdf: function (z, D, sigma) { return norm2PDF(z, D, sigma); },
       range: function (D, sigma) {
         var s2 = sigma * sigma;
@@ -359,6 +418,8 @@
   var NoiseTheory = {
     lgamma: lgamma,
     logBesselK: logBesselK,
+    gammaP: gammaP,
+    chiSquareQuantile: chiSquareQuantile,
     normalPDF: normalPDF,
     productPDF: productPDF,
     squarePDF: squarePDF,

@@ -335,6 +335,48 @@
     var pack = sumCache[mode.id] || null; // 不自动采样：无缓存则只画理论线
     var hist = pack ? histData(pack.samples, lo, hi, 140) : null;
 
+    // 标准差垂线：均值 ±kσ（k=1,2,3），落在绘图范围外的跳过，最多 6 根
+    // （单边分布如 ‖x‖² 小 D 时负侧出界，自动少于 6 根）
+    var mean = mode.mean(D, sigma, H);
+    var std = Math.sqrt(mode.variance(D, sigma, H));
+    var sdMarkData = [];
+    for (var k = 1; k <= 3; k++) {
+      for (var sign = -1; sign <= 1; sign += 2) {
+        var xSd = mean + sign * k * std;
+        if (xSd <= lo || xSd >= hi) continue;
+        // 必须用两点式：单点 {xAxis: v} 在 ECharts 5.5 中会被取整，
+        // 小数值（如 σ²=1/D 时 std ~ 1e-4）全部塌缩到 0
+        sdMarkData.push([
+          { xAxis: xSd, yAxis: 'min' },
+          {
+            xAxis: xSd,
+            yAxis: 'max',
+            label: { formatter: (sign < 0 ? '-' : '+') + k + 'σ' },
+          },
+        ]);
+      }
+    }
+
+    // 中心参考线（仅 ‖x‖² 这类均值非 0 的模式；对称分布均值=中位数=0 不画）：
+    // 均值实线、中位数点线，标签一上一下——大 D 时两线几乎重合也不打架
+    function centerLine(x, text, lineType, labelPos) {
+      if (!(x > lo && x < hi)) return;
+      var style = { color: '#111827', type: lineType, width: 1.5 };
+      sdMarkData.push([
+        { xAxis: x, yAxis: 'min', lineStyle: style },
+        {
+          xAxis: x,
+          yAxis: 'max',
+          lineStyle: style,
+          label: { formatter: text, position: labelPos, color: '#111827' },
+        },
+      ]);
+    }
+    if (mean !== 0) centerLine(mean, '均值', 'solid', 'insideEndTop');
+    if (mode.median) {
+      centerLine(mode.median(D, sigma, H), '中位数', 'dotted', 'insideStartTop');
+    }
+
     var series = [
       {
         name: mode.label + '（理论）',
@@ -352,6 +394,15 @@
         lineStyle: { color: mode.color, width: 2.5 },
         emphasis: { disabled: true },
         z: 3,
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          animation: false,
+          data: sdMarkData,
+          lineStyle: { color: '#6b7280', type: 'dashed', width: 1, opacity: 0.75 },
+          label: { position: 'insideEndTop', color: '#4b5563', fontSize: 10 },
+          tooltip: { show: false },
+        },
       },
     ];
     if (pack) {
@@ -405,6 +456,7 @@
       mode.label +
       '</b> 理论 均值 ' +
       fmt(mode.mean(D, sigma, H)) +
+      (mode.median ? '、中位数 ' + fmt(mode.median(D, sigma, H)) : '') +
       '、方差 ' +
       fmt(mode.variance(D, sigma, H));
     if (pack) {

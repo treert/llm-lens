@@ -211,6 +211,49 @@ console.log('[4] 直方图与边界行为');
   );
 }
 
+// ---------- 5. 卡方分位数与中位数 ----------
+console.log('[5] gammaP 与 χ² 中位数');
+{
+  check(
+    'P(1, x) = 1 − e^{−x}（指数分布闭式）',
+    relErr(T.gammaP(1, 2), 1 - Math.exp(-2)) < 1e-12,
+    'got ' + T.gammaP(1, 2)
+  );
+  check(
+    'χ²₁ 中位数 = Φ⁻¹(3/4)² ≈ 0.4549364',
+    relErr(T.chiSquareQuantile(0.5, 1), 0.454936423119573) < 1e-9,
+    'got ' + T.chiSquareQuantile(0.5, 1)
+  );
+  check(
+    'χ²₂ 中位数 = 2·ln2（指数分布闭式）',
+    relErr(T.chiSquareQuantile(0.5, 2), 2 * Math.LN2) < 1e-9,
+    'got ' + T.chiSquareQuantile(0.5, 2)
+  );
+  check(
+    '中位数 < 均值（χ² 右偏）：k=8、100、8192',
+    T.chiSquareQuantile(0.5, 8) < 8 &&
+      T.chiSquareQuantile(0.5, 100) < 100 &&
+      T.chiSquareQuantile(0.5, 8192) < 8192
+  );
+  check(
+    'k=100 贴合 Wilson–Hilferty 近似 k·(1−2/(9k))³',
+    relErr(T.chiSquareQuantile(0.5, 100), 100 * Math.pow(1 - 2 / 900, 3)) < 1e-4,
+    'got ' + T.chiSquareQuantile(0.5, 100)
+  );
+  const q32 = T.chiSquareQuantile(0.5, 32);
+  check(
+    'χ²₃₂ 中位数往返（CDF 复合回 0.5）',
+    Math.abs(T.gammaP(16, q32 / 2) - 0.5) < 1e-12,
+    'got ' + T.gammaP(16, q32 / 2)
+  );
+  const norm2Mode = T.SUM_MODES.filter((m) => m.id === 'norm2')[0];
+  check(
+    'norm2 median 接口 = σ²·χ²(D) 中位数（D=32, σ=0.5）',
+    relErr(norm2Mode.median(32, 0.5), 0.25 * q32) < 1e-12,
+    'got ' + norm2Mode.median(32, 0.5)
+  );
+}
+
 console.log('');
 if (failures > 0) {
   console.log('FAILED: ' + failures + ' 项未通过');
