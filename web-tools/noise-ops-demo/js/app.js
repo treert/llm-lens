@@ -1,10 +1,19 @@
 /**
  * UI 层：控件状态、采样驱动、ECharts 渲染。
  *
- * 两个面板：
- *   1. 按元素运算：5 条理论密度曲线同图对比 + 选中运算的蒙特卡洛直方图；
- *   2. 求和类：点积（双方随机 / 一方固定）与长度平方的直方图 + 精确理论曲线；
+ * 两个相互独立的面板，参数各管各的（σ²、D、样本量均不共享）：
+ *   1. 按元素运算：4 条理论密度曲线同图对比 + 选中运算的蒙特卡洛直方图。
+ *      逐分量标量分布，与维数 D 无关，σ²、N 独立设置；
+ *   2. 求和类：点积（双方随机 / 一方固定）与长度平方的直方图 + 精确理论曲线。
+ *      维数 D 与 σ²（预设 1 / 1/D / 1/√D 随 D 联动）独立设置，
  *      两种点积模式的方差对比即回答"σ²=1/D 时点积方差是否为 1"。
+ *   全局仅共享随机种子（影响复现性，不影响分布结论）。
+ *
+ * 交互约定：理论曲线随参数即时重画；蒙特卡洛不自动采样——
+ * 点各面板参数行的「采样」按钮才生成样本并叠加直方图；
+ * 参数（σ²、N、D、种子）变更后旧样本失效：直方图移除、采样按钮高亮提示。
+ * 仅切换运算/模式（radio）不失效：面板一用同一批样本重新映射，
+ * 面板二切到有缓存的模式直接显示。
  */
 (function () {
   'use strict';
@@ -27,89 +36,49 @@
 
   // ---------- 控件 ----------
   var el = {
-    sliderD: $('sliderD'),
-    inputD: $('inputD'),
-    inputSigma2: $('inputSigma2'),
-    inputC: $('inputC'),
-    inputN: $('inputN'),
+    // 全局
     chkSeed: $('chkSeed'),
     inputSeed: $('inputSeed'),
-    btnResample: $('btnResample'),
+    // 面板一
+    inputSigmaElem: $('inputSigmaElem'),
+    inputN: $('inputN'),
+    btnSampleElem: $('btnSampleElem'),
     elementStats: $('elementStats'),
+    // 面板二
+    sliderD: $('sliderD'),
+    inputD: $('inputD'),
+    inputSigmaSum: $('inputSigmaSum'),
+    btnSampleSum: $('btnSampleSum'),
     sumStats: $('sumStats'),
   };
   var presetButtons = Array.prototype.slice.call(
     document.querySelectorAll('.preset-group button')
   );
 
-  // ---------- 状态 ----------
+  // ---------- 状态：两个面板各自独立 ----------
   var state = {
-    D: 16,
-    sigma2preset: '1/D', // '1' | '1/D' | '1/sqrtD' | null（自定义）
-    sigma2: 1 / 16,
-    c: 2,
-    N: 200000,
     useSeed: true,
     seed: 42,
-    elementOp: 'product',
-    sumMode: 'dotRandom',
+    elem: { sigma2: 1, N: 200000, op: 'product' },
+    sum: { D: 16, sigma2preset: '1/D', sigma2: 1 / 16, mode: 'dotRandom' },
   };
 
-  var pairs = null; // 按元素运算共享的样本对 {x, y}
-  var sumCache = {}; // modeId -> { samples, M }
+  var pairs = null; // 面板一样本对 {x, y}；null = 未采样/已失效
+  var sumCache = {}; // 面板二缓存：modeId -> { samples, M }；参数变更即清空
   var charts = {};
 
-  // ---------- σ² 预设 ----------
-  function sigma2FromPreset(preset, D) {
-    if (preset === '1') return 1;
-    if (preset === '1/D') return 1 / D;
-    if (preset === '1/sqrtD') return 1 / Math.sqrt(D);
-    return null;
-  }
-
-  function refreshSigma2() {
-    if (state.sigma2preset) {
-      state.sigma2 = sigma2FromPreset(state.sigma2preset, state.D);
-    }
-    el.inputSigma2.value = Number(state.sigma2.toPrecision(6));
-    presetButtons.forEach(function (b) {
-      b.classList.toggle('active', b.dataset.preset === state.sigma2preset);
-    });
-  }
-
-  // ---------- 采样 ----------
+  /** 随机种子（全局共享）；salt 区分各条随机流，保证两面板样本无交集 */
   function currentSeed(salt) {
     var base = state.useSeed ? state.seed : (Math.random() * 1e9) | 0;
     return (base + salt) >>> 0;
   }
 
-  function resample() {
-    var sigma = Math.sqrt(state.sigma2);
-    pairs = S.samplePairs(S.makeRng(currentSeed(0)), state.N, sigma);
-    sumCache = {};
-    renderElement();
-    renderSum();
+  /** 采样按钮高亮切换：样本失效时提示需要重新采样 */
+  function markNeedSample(btn, need) {
+    btn.classList.toggle('need-sample', need);
   }
 
-  /** 求和类样本：M 随 D 自适应（总采样量封顶 ~1.6e7 个分量），按模式缓存 */
-  function getSumSamples(modeId) {
-    if (sumCache[modeId]) return sumCache[modeId];
-    var D = state.D;
-    var sigma = Math.sqrt(state.sigma2);
-    var M = Math.max(2000, Math.min(60000, Math.floor(1.6e7 / (2 * D))));
-    var salt = modeId === 'dotRandom' ? 11 : modeId === 'dotFixed' ? 23 : 37;
-    var seed = currentSeed(salt);
-    var fixedVec = null;
-    if (modeId === 'dotFixed') {
-      // 固定向量只生成一次：±1 分量（‖v‖² = D 恒成立）
-      fixedVec = S.makeFixedVector(S.makeRng(seed ^ 0x9e3779b9), D);
-    }
-    var samples = S.sampleSum(S.makeRng(seed), modeId, M, D, sigma, fixedVec);
-    sumCache[modeId] = { samples: samples, M: M };
-    return sumCache[modeId];
-  }
-
-  // ---------- 绘图数据 ----------
+  // ---------- 绘图数据小函数（两面板共用） ----------
   function histData(samples, lo, hi, nBins) {
     var h = S.histogram(samples, lo, hi, nBins);
     var data = [];
@@ -125,29 +94,31 @@
     var data = [];
     for (var i = 0; i <= n; i++) {
       var z = lo + ((hi - lo) * i) / n;
-      data.push([z, pdf(z)]);
+      var y = pdf(z);
+      // 密度在奇点可发散（如乘积正态 z=0 对数奇异），断点处理避免污染坐标轴范围
+      data.push([z, isFinite(y) ? y : null]);
     }
     return data;
   }
 
-  // ---------- 面板 1：按元素运算 ----------
+  // ---------- 面板一：按元素运算 ----------
   function renderElement() {
-    var sigma = Math.sqrt(state.sigma2);
-    var c = state.c;
-    // 横轴取五种运算建议范围的并集：同图对比时能看到"平方被压到正半轴 0 附近"
+    var sigma = Math.sqrt(state.elem.sigma2);
+    // 横轴取四种运算建议范围的并集：同图对比时能看到"平方被压到正半轴 0 附近"
     var lo = Infinity;
     var hi = -Infinity;
     T.ELEMENT_OPS.forEach(function (op) {
-      var r = op.range(sigma, c);
+      var r = op.range(sigma);
       lo = Math.min(lo, r[0]);
       hi = Math.max(hi, r[1]);
     });
 
-    var samples = S.applyElementOp(state.elementOp, pairs.x, pairs.y, c);
-    var hist = histData(samples, lo, hi, 140);
+    var hasSample = pairs !== null;
+    var samples = hasSample ? S.applyElementOp(state.elem.op, pairs.x, pairs.y) : null;
+    var hist = hasSample ? histData(samples, lo, hi, 140) : null;
 
     var series = T.ELEMENT_OPS.map(function (op) {
-      var active = op.id === state.elementOp;
+      var active = op.id === state.elem.op;
       return {
         name: op.label,
         type: 'line',
@@ -155,7 +126,7 @@
         animation: false,
         data: theoryLine(
           function (z) {
-            return op.pdf(z, sigma, c);
+            return op.pdf(z, sigma);
           },
           lo,
           hi,
@@ -166,18 +137,20 @@
         z: active ? 4 : 3,
       };
     });
-    series.push({
-      name: '蒙特卡洛（选中运算）',
-      type: 'line',
-      step: 'middle',
-      showSymbol: false,
-      animation: false,
-      data: hist.data,
-      lineStyle: { color: '#1d4ed8', width: 1 },
-      areaStyle: { color: 'rgba(59,130,246,0.22)' },
-      emphasis: { disabled: true },
-      z: 2,
-    });
+    if (hasSample) {
+      series.push({
+        name: '蒙特卡洛（选中运算）',
+        type: 'line',
+        step: 'middle',
+        showSymbol: false,
+        animation: false,
+        data: hist.data,
+        lineStyle: { color: '#1d4ed8', width: 1 },
+        areaStyle: { color: 'rgba(59,130,246,0.22)' },
+        emphasis: { disabled: true },
+        z: 2,
+      });
+    }
 
     charts.element.setOption(
       {
@@ -197,7 +170,7 @@
           nameLocation: 'middle',
           nameRotate: 90,
           nameGap: 50,
-          max: hist.peak > 0 ? hist.peak * 1.3 : null,
+          max: hist && hist.peak > 0 ? hist.peak * 1.3 : null,
           axisLabel: { formatter: fmt },
         },
         series: series,
@@ -206,40 +179,81 @@
     );
 
     var op = T.ELEMENT_OPS.filter(function (o) {
-      return o.id === state.elementOp;
+      return o.id === state.elem.op;
     })[0];
-    var mv = S.sampleMeanVar(samples);
-    var outCount = hist.under + hist.over;
-    el.elementStats.innerHTML =
-      '选中 <b>' +
+    var text =
+      'σ²=' +
+      fmt(state.elem.sigma2) +
+      '：<b>' +
       op.label +
-      '</b>：理论 均值 ' +
-      fmt(op.mean(sigma, c)) +
+      '</b> 理论 均值 ' +
+      fmt(op.mean(sigma)) +
       '、方差 ' +
-      fmt(op.variance(sigma, c)) +
-      ' ｜ 样本 均值 ' +
-      fmt(mv.mean) +
-      '、方差 ' +
-      fmt(mv.variance) +
-      '（N=' +
-      state.N.toLocaleString() +
-      (outCount > 0 ? '，绘图范围外 ' + outCount + ' 个' : '') +
-      '）';
+      fmt(op.variance(sigma));
+    if (hasSample) {
+      var mv = S.sampleMeanVar(samples);
+      var outCount = hist.under + hist.over;
+      text +=
+        ' ｜ 样本 均值 ' +
+        fmt(mv.mean) +
+        '、方差 ' +
+        fmt(mv.variance) +
+        '（N=' +
+        state.elem.N.toLocaleString() +
+        (outCount > 0 ? '，绘图范围外 ' + outCount + ' 个' : '') +
+        '）';
+    } else {
+      text += ' ｜ <span class="stat-dim">未采样——点参数行「采样」叠加蒙特卡洛直方图</span>';
+    }
+    el.elementStats.innerHTML = text;
   }
 
-  // ---------- 面板 2：求和类 ----------
+  // ---------- 面板二：求和类 ----------
+  function sigma2FromPreset(preset, D) {
+    if (preset === '1') return 1;
+    if (preset === '1/D') return 1 / D;
+    if (preset === '1/sqrtD') return 1 / Math.sqrt(D);
+    return null;
+  }
+
+  function refreshSigma2() {
+    if (state.sum.sigma2preset) {
+      state.sum.sigma2 = sigma2FromPreset(state.sum.sigma2preset, state.sum.D);
+    }
+    el.inputSigmaSum.value = Number(state.sum.sigma2.toPrecision(6));
+    presetButtons.forEach(function (b) {
+      b.classList.toggle('active', b.dataset.preset === state.sum.sigma2preset);
+    });
+  }
+
+  /** 采指定模式并存入缓存；M 随 D 自适应（总采样量封顶 ~1.6e7 个分量） */
+  function sampleSumMode(modeId) {
+    var D = state.sum.D;
+    var sigma = Math.sqrt(state.sum.sigma2);
+    var M = Math.max(2000, Math.min(60000, Math.floor(1.6e7 / (2 * D))));
+    var salt = modeId === 'dotRandom' ? 11 : modeId === 'dotFixed' ? 23 : 37;
+    var seed = currentSeed(salt);
+    var fixedVec = null;
+    if (modeId === 'dotFixed') {
+      // 固定向量只生成一次：±1 分量（‖v‖² = D 恒成立）
+      fixedVec = S.makeFixedVector(S.makeRng(seed ^ 0x9e3779b9), D);
+    }
+    var samples = S.sampleSum(S.makeRng(seed), modeId, M, D, sigma, fixedVec);
+    sumCache[modeId] = { samples: samples, M: M };
+  }
+
   function renderSum() {
-    var sigma = Math.sqrt(state.sigma2);
-    var D = state.D;
+    var sigma = Math.sqrt(state.sum.sigma2);
+    var D = state.sum.D;
     var mode = T.SUM_MODES.filter(function (m) {
-      return m.id === state.sumMode;
+      return m.id === state.sum.mode;
     })[0];
     var r = mode.range(D, sigma);
     var lo = r[0];
     var hi = r[1];
 
-    var pack = getSumSamples(mode.id);
-    var hist = histData(pack.samples, lo, hi, 140);
+    var pack = sumCache[mode.id] || null; // 不自动采样：无缓存则只画理论线
+    var hist = pack ? histData(pack.samples, lo, hi, 140) : null;
 
     var series = [
       {
@@ -259,7 +273,9 @@
         emphasis: { disabled: true },
         z: 3,
       },
-      {
+    ];
+    if (pack) {
+      series.push({
         name: '蒙特卡洛',
         type: 'line',
         step: 'middle',
@@ -270,8 +286,8 @@
         areaStyle: { color: 'rgba(59,130,246,0.22)' },
         emphasis: { disabled: true },
         z: 2,
-      },
-    ];
+      });
+    }
 
     charts.sum.setOption(
       {
@@ -291,7 +307,7 @@
           nameLocation: 'middle',
           nameRotate: 90,
           nameGap: 50,
-          max: hist.peak > 0 ? hist.peak * 1.3 : null,
+          max: hist && hist.peak > 0 ? hist.peak * 1.3 : null,
           axisLabel: { formatter: fmt },
         },
         series: series,
@@ -299,36 +315,90 @@
       true
     );
 
-    var mv = S.sampleMeanVar(pack.samples);
-    el.sumStats.innerHTML =
+    var text =
       'D=' +
       D +
       '、σ²=' +
-      fmt(state.sigma2) +
+      fmt(state.sum.sigma2) +
       '：<b>' +
       mode.label +
       '</b> 理论 均值 ' +
       fmt(mode.mean(D, sigma)) +
       '、方差 ' +
-      fmt(mode.variance(D, sigma)) +
-      ' ｜ 样本 均值 ' +
-      fmt(mv.mean) +
-      '、方差 ' +
-      fmt(mv.variance) +
-      '（M=' +
-      pack.M.toLocaleString() +
-      ' 个独立向量）';
+      fmt(mode.variance(D, sigma));
+    if (pack) {
+      var mv = S.sampleMeanVar(pack.samples);
+      text +=
+        ' ｜ 样本 均值 ' +
+        fmt(mv.mean) +
+        '、方差 ' +
+        fmt(mv.variance) +
+        '（M=' +
+        pack.M.toLocaleString() +
+        ' 个独立向量）';
+    } else {
+      text += ' ｜ <span class="stat-dim">未采样——点参数行「采样」叠加蒙特卡洛直方图</span>';
+    }
+    el.sumStats.innerHTML = text;
+  }
+
+  // ---------- 样本失效 ----------
+  function invalidateElement() {
+    pairs = null;
+    markNeedSample(el.btnSampleElem, true);
+    renderElement();
+  }
+
+  function invalidateSum() {
+    sumCache = {};
+    markNeedSample(el.btnSampleSum, true);
+    renderSum();
   }
 
   // ---------- 控件事件 ----------
-  function onDChange(D) {
-    state.D = D;
-    refreshSigma2(); // 依赖 D 的预设（1/D、1/√D）随动
-    resample();
-  }
-
   function bindControls() {
-    // D：滑块走 2 的幂，输入框允许任意 1~8192
+    // —— 面板一 ——
+    el.inputSigmaElem.addEventListener('change', function () {
+      var v = +el.inputSigmaElem.value;
+      if (!(v > 0)) {
+        el.inputSigmaElem.value = state.elem.sigma2;
+        return;
+      }
+      state.elem.sigma2 = v;
+      invalidateElement();
+    });
+    el.inputN.addEventListener('change', function () {
+      var v = Math.round(+el.inputN.value);
+      if (isFinite(v) && v >= 1000) {
+        state.elem.N = Math.min(v, 2000000);
+        el.inputN.value = state.elem.N;
+        invalidateElement();
+      } else {
+        el.inputN.value = state.elem.N;
+      }
+    });
+    document.querySelectorAll('input[name="elementOp"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        state.elem.op = r.value;
+        renderElement(); // 运算切换不失效样本：同一批 pairs 重新映射
+      });
+    });
+    el.btnSampleElem.addEventListener('click', function () {
+      pairs = S.samplePairs(
+        S.makeRng(currentSeed(0)),
+        state.elem.N,
+        Math.sqrt(state.elem.sigma2)
+      );
+      markNeedSample(el.btnSampleElem, false);
+      renderElement();
+    });
+
+    // —— 面板二 ——
+    function onDChange(D) {
+      state.sum.D = D;
+      refreshSigma2(); // 依赖 D 的预设（1/D、1/√D）随动
+      invalidateSum();
+    }
     el.sliderD.addEventListener('input', function () {
       var D = Math.pow(2, +el.sliderD.value);
       el.inputD.value = D;
@@ -337,7 +407,7 @@
     el.inputD.addEventListener('change', function () {
       var D = Math.round(+el.inputD.value);
       if (!isFinite(D)) {
-        el.inputD.value = state.D;
+        el.inputD.value = state.sum.D;
         return;
       }
       D = Math.max(1, Math.min(8192, D));
@@ -345,83 +415,63 @@
       el.sliderD.value = Math.max(0, Math.min(12, Math.round(Math.log2(D))));
       onDChange(D);
     });
-
     presetButtons.forEach(function (b) {
       b.addEventListener('click', function () {
-        state.sigma2preset = b.dataset.preset;
+        state.sum.sigma2preset = b.dataset.preset;
         refreshSigma2();
-        resample();
+        invalidateSum();
       });
     });
-    el.inputSigma2.addEventListener('change', function () {
-      var v = +el.inputSigma2.value;
+    el.inputSigmaSum.addEventListener('change', function () {
+      var v = +el.inputSigmaSum.value;
       if (!(v > 0)) {
         refreshSigma2();
         return;
       }
-      state.sigma2preset = null; // 自定义后取消预设高亮
-      state.sigma2 = v;
+      state.sum.sigma2preset = null; // 自定义后取消预设高亮
+      state.sum.sigma2 = v;
       refreshSigma2();
-      resample();
+      invalidateSum();
+    });
+    document.querySelectorAll('input[name="sumMode"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        state.sum.mode = r.value;
+        renderSum(); // 切换模式不失效：有缓存则显示直方图，无则纯理论线
+      });
+    });
+    el.btnSampleSum.addEventListener('click', function () {
+      sampleSumMode(state.sum.mode); // 只采当前模式，其余模式切换后再按需采
+      markNeedSample(el.btnSampleSum, false);
+      renderSum();
     });
 
-    // c 只影响映射，无需重新采样
-    el.inputC.addEventListener('change', function () {
-      var v = +el.inputC.value;
-      if (isFinite(v) && v !== 0) {
-        state.c = v;
-        renderElement();
-      } else {
-        el.inputC.value = state.c;
-      }
-    });
-
-    el.inputN.addEventListener('change', function () {
-      var v = Math.round(+el.inputN.value);
-      if (isFinite(v) && v >= 1000) {
-        state.N = Math.min(v, 2000000);
-        el.inputN.value = state.N;
-        resample();
-      } else {
-        el.inputN.value = state.N;
-      }
-    });
-
+    // —— 全局 ——
     el.chkSeed.addEventListener('change', function () {
       state.useSeed = el.chkSeed.checked;
       el.inputSeed.disabled = !state.useSeed;
-      resample();
+      invalidateElement();
+      invalidateSum();
     });
     el.inputSeed.addEventListener('change', function () {
       var v = Math.round(+el.inputSeed.value);
       if (isFinite(v)) {
         state.seed = v;
-        resample();
+        invalidateElement();
+        invalidateSum();
       }
-    });
-    el.btnResample.addEventListener('click', resample);
-
-    document.querySelectorAll('input[name="elementOp"]').forEach(function (r) {
-      r.addEventListener('change', function () {
-        state.elementOp = r.value;
-        renderElement();
-      });
-    });
-    document.querySelectorAll('input[name="sumMode"]').forEach(function (r) {
-      r.addEventListener('change', function () {
-        state.sumMode = r.value;
-        renderSum();
-      });
     });
   }
 
-  // ---------- 初始化 ----------
+  // ---------- 初始化：只画理论线，采样由用户手动触发 ----------
   function init() {
     charts.element = echarts.init($('chartElement'));
     charts.sum = echarts.init($('chartSum'));
     bindControls();
     refreshSigma2();
-    resample();
+    markNeedSample(el.btnSampleElem, true);
+    markNeedSample(el.btnSampleSum, true);
+    renderElement();
+    renderSum();
     window.addEventListener('resize', function () {
       charts.element.resize();
       charts.sum.resize();

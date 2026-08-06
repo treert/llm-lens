@@ -13,64 +13,53 @@
       <h1>噪音向量的基本运算：分布视角</h1>
     </div>
     <p class="subtitle">
-      x、y 为 D 维向量，各分量独立同分布 N(0, σ²)。LLM 的线性部分不外三种运算：<strong>加</strong>、<strong>数乘</strong>、<strong>点积</strong>
-      （矩阵投影 = 每行一个点积，组成新向量）。本页从概率密度、均值、方差三个视角演示：
-      <strong class="legend-note note-blue">加 / 数乘保持正态</strong>，
+      LLM 的线性部分不外三种运算：<strong>加</strong>、<strong>数乘</strong>、<strong>点积</strong>
+      （矩阵投影 = 每行一个点积，组成新向量）。本页从概率密度、均值、方差三个视角演示高斯噪音经历这些运算后的分布变化：
+      <strong class="legend-note note-blue">相加保持正态</strong>，
       <strong class="legend-note note-orange">按元素乘变成"乘积正态"（尖峰重尾）</strong>，
       <strong class="legend-note note-red">平方变成卡方（均值漂离 0）</strong>。
     </p>
   </header>
 
   <section class="controls">
-    <div class="control control-slider">
-      <label for="sliderD">维数 D</label>
-      <input id="sliderD" type="range" min="0" max="12" step="1" value="4" />
-      <input id="inputD" type="number" min="1" max="8192" step="1" value="16" />
-    </div>
-    <div class="control">
-      <label>分量方差 σ²</label>
-      <div class="preset-group">
-        <button type="button" data-preset="1">1</button>
-        <button type="button" data-preset="1/D" class="active">1/D</button>
-        <button type="button" data-preset="1/sqrtD">1/√D</button>
-      </div>
-      <input id="inputSigma2" type="number" step="any" title="自定义 σ²" />
-    </div>
-    <div class="control">
-      <label for="inputC">数乘 c</label>
-      <input id="inputC" type="number" step="any" value="2" />
-    </div>
-    <div class="control">
-      <label for="inputN">样本量 N</label>
-      <input id="inputN" type="number" min="1000" max="2000000" step="1000" value="200000" />
-    </div>
     <div class="control control-mc">
-      <button id="btnResample" type="button">重新采样</button>
       <label for="chkSeed">
         <input id="chkSeed" type="checkbox" checked />
         固定种子
       </label>
       <input id="inputSeed" type="number" value="42" step="1" />
     </div>
+    <span class="controls-hint">
+      理论曲线随参数即时更新；蒙特卡洛不自动采样——点各面板参数行的「采样」叠加直方图（参数变更后按钮高亮提示重新采样）
+    </span>
   </section>
 
   <main>
     <div class="chart-wrap">
       <div class="panel-head">
-        <h2>按元素运算（逐分量分布）</h2>
+        <h2>按元素运算：标量分布</h2>
         <div class="op-radios">
           <label><input type="radio" name="elementOp" value="x" /> x</label>
           <label><input type="radio" name="elementOp" value="add" /> x+y</label>
-          <label><input type="radio" name="elementOp" value="scale" /> c·x</label>
           <label><input type="radio" name="elementOp" value="product" checked /> x∘y</label>
           <label><input type="radio" name="elementOp" value="square" /> x²</label>
           <span class="radio-hint">（选中项叠加蒙特卡洛直方图）</span>
         </div>
       </div>
+      <div class="panel-controls">
+        <label for="inputSigmaElem">分量方差 σ²</label>
+        <input id="inputSigmaElem" type="number" step="any" value="1" />
+        <label for="inputN">样本量 N</label>
+        <input id="inputN" type="number" min="1000" max="2000000" step="1000" value="200000" />
+        <button id="btnSampleElem" type="button">采样</button>
+        <span class="radio-hint">仅作用于本面板（逐分量标量分布，与维数 D 无关）</span>
+      </div>
       <div id="chartElement" class="chart"></div>
       <p class="chart-note" id="elementStats"></p>
       <p class="chart-note">
-        加与数乘保持正态（方差相加 / 乘 c²）；按元素乘是乘积正态 f(z) = K₀(|z|/σ²)/(πσ²)，
+        本面板演示<strong>标量</strong>：x、y 为独立噪音标量，x, y ~ N(0, σ²)
+        （也可理解为向量的任意一个分量——按元素运算后各分量仍 iid，单分量分布即整体）。
+        相加仍是正态（方差相加）；按元素乘是乘积正态 f(z) = K₀(|z|/σ²)/(πσ²)，
         0 处对数尖峰、重尾（峰度 9），方差 = σ⁴（方差的乘积）；平方是缩放卡方 σ²χ²₁，
         只有正半轴且均值从 0 漂到 σ²——"能量"不再关于 0 对称。曲线为精确理论密度。
       </p>
@@ -78,16 +67,31 @@
 
     <div class="chart-wrap">
       <div class="panel-head">
-        <h2>求和：点积与长度</h2>
+        <h2>向量求和：点积与长度分布</h2>
         <div class="op-radios">
           <label><input type="radio" name="sumMode" value="dotRandom" checked /> 点积 x·y（双方随机）</label>
           <label><input type="radio" name="sumMode" value="dotFixed" /> 点积 x·v（一方固定 ±1）</label>
           <label><input type="radio" name="sumMode" value="norm2" /> 长度平方 ‖x‖²</label>
         </div>
       </div>
+      <div class="panel-controls">
+        <label for="sliderD">维数 D</label>
+        <input id="sliderD" type="range" min="0" max="12" step="1" value="4" />
+        <input id="inputD" type="number" min="1" max="8192" step="1" value="16" />
+        <label>分量方差 σ²</label>
+        <div class="preset-group">
+          <button type="button" data-preset="1">1</button>
+          <button type="button" data-preset="1/D" class="active">1/D</button>
+          <button type="button" data-preset="1/sqrtD">1/√D</button>
+        </div>
+        <input id="inputSigmaSum" type="number" step="any" title="自定义 σ²" />
+        <button id="btnSampleSum" type="button">采样</button>
+        <span class="radio-hint">仅作用于本面板</span>
+      </div>
       <div id="chartSum" class="chart"></div>
       <p class="chart-note" id="sumStats"></p>
       <p class="chart-note">
+        本面板演示<strong>向量</strong>：x、y 为 D 维向量，各分量独立同分布 N(0, σ²)，考察把 D 个分量求和压成标量的运算。
         点积 = 先按元素乘再求和：D=1 即乘积正态（尖峰），D=2 恰为 Laplace 分布，D 增大由中心极限定理趋于正态（拖 D 滑杆看全过程）。
         双方随机时 Var = D·σ⁴；一方固定（v 分量 ±1，‖v‖² = D）时是精确正态 N(0, Dσ²)，Var = D·σ²——
         故 σ²=1/D 时前者方差为 1/D、后者恰为 1：<strong>"1/D 让点积方差为 1"只在一方固定时成立</strong>。

@@ -2,7 +2,7 @@
  * 噪音向量基本运算的蒙特卡洛采样层。
  *
  * - mulberry32 + Box–Muller 高斯 RNG（可设种子，结果可复现）；
- * - 按元素运算：采 N 对分量样本 x、y，再按运算映射，五种运算共享同一批样本；
+ * - 按元素运算：采 N 对分量样本 x、y，再按运算映射，四种运算共享同一批样本；
  * - 求和类运算：逐样本采 D 维向量做乘加（不取巧直接采理论分布，保持"模拟"语义）；
  * - 直方图分箱与样本矩估计。
  *
@@ -63,7 +63,7 @@
   }
 
   /** 把样本对按选中的按元素运算映射成输出样本 */
-  function applyElementOp(opId, x, y, c) {
+  function applyElementOp(opId, x, y) {
     var N = x.length;
     var out = new Float64Array(N);
     var i;
@@ -71,8 +71,6 @@
       return x.slice();
     } else if (opId === 'add') {
       for (i = 0; i < N; i++) out[i] = x[i] + y[i];
-    } else if (opId === 'scale') {
-      for (i = 0; i < N; i++) out[i] = c * x[i];
     } else if (opId === 'product') {
       for (i = 0; i < N; i++) out[i] = x[i] * y[i];
     } else if (opId === 'square') {

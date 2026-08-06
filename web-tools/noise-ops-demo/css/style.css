@@ -200,6 +200,58 @@ main {
   font-size: 12px;
 }
 
+/* 面板内参数行：浅色底与全局控制区区分，强调"仅本面板" */
+.panel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  margin: 4px 0 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.panel-controls label {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.panel-controls input[type="number"] {
+  width: 72px;
+  padding: 3px 6px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.panel-controls input[type="range"] {
+  width: 180px;
+}
+
+.controls-hint {
+  font-size: 12px;
+  color: #8c959f;
+}
+
+/* 采样按钮：样本失效/未采样时高亮提示 */
+button.need-sample {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+button.need-sample:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+/* 统计行中"未采样"提示 */
+.stat-dim {
+  color: #8c959f;
+}
+
 .chart {
   width: 100%;
   height: 420px;

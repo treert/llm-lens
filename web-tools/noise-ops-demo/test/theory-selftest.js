@@ -113,13 +113,10 @@ console.log('[3] 理论均值/方差与采样一致（固定种子）');
   const N = 400000;
   const pairs = S.samplePairs(gauss, N, sigma);
 
-  const add = S.sampleMeanVar(S.applyElementOp('add', pairs.x, pairs.y, 2));
+  const add = S.sampleMeanVar(S.applyElementOp('add', pairs.x, pairs.y));
   check('add：方差 ≈ 2σ²', relErr(add.variance, 2 * sigma * sigma) < 0.02, 'got ' + add.variance);
 
-  const scale = S.sampleMeanVar(S.applyElementOp('scale', pairs.x, pairs.y, 2));
-  check('scale：方差 ≈ c²σ²', relErr(scale.variance, 4 * sigma * sigma) < 0.02, 'got ' + scale.variance);
-
-  const prod = S.sampleMeanVar(S.applyElementOp('product', pairs.x, pairs.y, 2));
+  const prod = S.sampleMeanVar(S.applyElementOp('product', pairs.x, pairs.y));
   check('product：均值 ≈ 0', Math.abs(prod.mean) < 0.01, 'got ' + prod.mean);
   check(
     'product：方差 ≈ σ⁴（方差的乘积）',
@@ -127,7 +124,7 @@ console.log('[3] 理论均值/方差与采样一致（固定种子）');
     'got ' + prod.variance
   );
 
-  const sq = S.sampleMeanVar(S.applyElementOp('square', pairs.x, pairs.y, 2));
+  const sq = S.sampleMeanVar(S.applyElementOp('square', pairs.x, pairs.y));
   check('square：均值 ≈ σ²（漂离 0）', relErr(sq.mean, sigma * sigma) < 0.02, 'got ' + sq.mean);
   check('square：方差 ≈ 2σ⁴', relErr(sq.variance, 2 * Math.pow(sigma, 4)) < 0.05, 'got ' + sq.variance);
 

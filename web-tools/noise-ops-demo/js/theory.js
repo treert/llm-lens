@@ -3,11 +3,11 @@
  *
  * 设定：x、y 为 D 维向量，各分量独立，x_i ~ N(0, σ²)，y_i ~ N(0, σ²)。
  * 覆盖运算：
- *   按元素：x（原噪音）、x+y、c·x、x∘y（乘积正态）、x²（卡方）
+ *   按元素：x（原噪音）、x+y、x∘y（乘积正态）、x²（卡方）
  *   求和类：点积 x·y（双方随机 / 一方固定）、长度平方 ‖x‖²
  *
  * 关键结论（README.md 有完整推导）：
- *   - 加、数乘保持正态：方差相加 / 乘 c²
+ *   - 相加保持正态：方差相加
  *   - 按元素乘是"乘积正态"：f(z) = K_0(|z|/σ²)/(πσ²)，方差 = σx²σy²，尖峰重尾
  *   - 平方是缩放卡方 σ²χ²₁：均值 σ²（漂离 0），方差 2σ⁴
  *   - 双方随机点积：Var = D·σx²σy²，密度含 Bessel K_{(D-1)/2}，
@@ -226,7 +226,7 @@
   // ---------- 运算描述表：label、理论矩、密度、建议画图范围（mean±6std 口径） ----------
 
   /**
-   * 按元素运算。sigma、c 为参数。
+   * 按元素运算。sigma 为参数。
    * range 返回 [lo, hi]：覆盖均值 ±6 倍标准差（平方运算下界截到 0）。
    */
   var ELEMENT_OPS = [
@@ -247,18 +247,6 @@
       variance: function (sigma) { return 2 * sigma * sigma; },
       pdf: function (z, sigma) { return normalPDF(z, 0, 2 * sigma * sigma); },
       range: function (sigma) { return [-6 * Math.SQRT2 * sigma, 6 * Math.SQRT2 * sigma]; },
-    },
-    {
-      id: 'scale',
-      label: 'c · x',
-      color: '#0d9488',
-      mean: function () { return 0; },
-      variance: function (sigma, c) { return c * c * sigma * sigma; },
-      pdf: function (z, sigma, c) { return normalPDF(z, 0, c * c * sigma * sigma); },
-      range: function (sigma, c) {
-        var s = Math.abs(c) * sigma;
-        return [-6 * s, 6 * s];
-      },
     },
     {
       id: 'product',
