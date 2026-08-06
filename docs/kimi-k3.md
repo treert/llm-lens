@@ -27,7 +27,26 @@
 | 专家维度 | moe_intermediate_size=3072,routed_expert_hidden_size=3584(latent MoE,带 norm) |
 | dense MLP intermediate_size | 33792(仅第 1 层) |
 | 上下文 | max_position_embeddings=1,048,576 |
-| 其他 | 每层有 `self_attention_res_proj/norm`、`mlp_res_proj/norm` 残差分支(attn_res_block_size=12) |
+| 其他 | 每层有 `self_attention_res_proj/norm`、`mlp_res_proj/norm` 残差分支(attn_res_block_size=12;AttnRes,见下节) |
+
+## AttnRes(注意力残差)
+
+传统残差 $h_l = h_{l-1} + f_{l-1}(h_{l-1})$ 对所有历史层等权累加,浅层信号被逐层稀释。
+AttnRes(Kimi 2026.3,arXiv:2603.15031)把跨 block 的聚合改成**可学习的 softmax 凸组合**:
+
+- 每 `attn_res_block_size / 2 = 6` 层存一个 block 表示 $V_i$(embedding 算第 0 个);
+- 每层在 attention 前、MLP 前各做一次融合(对应权重 `self_attention_res_proj/norm`、
+  `mlp_res_proj/norm`):$\mathrm{logits}_i = w \cdot \mathrm{RMSNorm}(V_i)$,
+  $h = \sum_i \mathrm{softmax}(\mathrm{logits})_i\, V_i$,
+  其中 $w$ 是 `res_proj` 的 7168 维可学习向量;
+- block 内部仍是经典残差累加。
+
+方差意义:凸组合(权重非负、和为 1)的方差有界
+$\mathrm{Var}\!\left(\sum_i \alpha_i V_i\right) \le \max_i \mathrm{Var}(V_i)$,
+不随深度线性增长——GPT-2 式 $1/\sqrt{2N}$ 初始化修正(见
+[rmsnorm.md](rmsnorm.md) §4.2)在架构层面不再必要;
+block 内 ~6 层的累加只剩常数级放大,被 RMSNorm 与训练吸收。
+`res_norm` 同时抹平各 block 的尺度差异,使 logits 只反映方向匹配。
 
 ## 权重命名与量化分布
 
@@ -65,3 +84,4 @@
 3. **KDA 线性注意力**:`A_log`(衰减率)、`dt_bias`、conv1d 核的分布。
 4. **MoE 路由器**:`gate.weight` 行向量(每个专家一个 7168 维向量)之间的夹角分布——专家是否"正交分化";`e_score_correction_bias` 的分布。
 5. **路由专家**:需先按 mxfp4 格式反量化(注意 group_size=32、共享 scale 的打包方式),之后可做专家间相似度等分析;数据量大(单专家 w1/w3 约 3584×3072),注意按需读取单个专家而不是整层加载。
+6. **AttnRes**:逐层读 `res_proj` 向量(7168 维)的范数分布,对比初始化尺度看训练漂移;结合 `res_norm` 增益估计各 block 的 logits 尺度(softmax 是趋于均匀还是已分化出偏好)。
