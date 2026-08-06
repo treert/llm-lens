@@ -78,6 +78,9 @@ $$s = \sum_{i=1}^{r} \sigma_i\,\xi_i\eta_i, \qquad
 初始化时 σ_w²=1/D 的谱是"平"的典型样本：E‖M‖_F² = D²·H·σ_w⁴ = H（σ_w=1/√D），
 平均到 H 个方向各摊 ~1，与 §1 的 Var(s) = Hσ⁴ 一致。
 
+训练后谱的经验规律（文献）与用开源权重验证的方案见
+[qk-spectrum.md](qk-spectrum.md)。
+
 ## 5. 演示
 
 `web-tools/noise-ops-demo` 面板二「投影点积（attention 分数）」模式：
