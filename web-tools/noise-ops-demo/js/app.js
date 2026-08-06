@@ -28,6 +28,9 @@
 
   /** 紧凑数字格式：常规范围定点，极端范围科学计数 */
   function fmt(x) {
+    // tooltip 断点（乘积正态/卡方在 z=0 的 null）会被 ECharts 原样透传给
+    // valueFormatter，必须兜底；否则抛异常会把 tooltip 更新链打断导致 tip 卡死
+    if (typeof x !== 'number' || isNaN(x)) return '-';
     if (!isFinite(x)) return String(x);
     var a = Math.abs(x);
     if (a !== 0 && (a < 1e-4 || a >= 1e5)) return x.toExponential(2);
