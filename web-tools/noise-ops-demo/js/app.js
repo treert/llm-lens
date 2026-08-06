@@ -52,6 +52,7 @@
     inputH: $('inputH'),
     inputSigmaSum: $('inputSigmaSum'),
     btnSampleSum: $('btnSampleSum'),
+    btnResetSum: $('btnResetSum'),
     sumStats: $('sumStats'),
   };
   var presetButtons = Array.prototype.slice.call(
@@ -69,6 +70,8 @@
   var pairs = null; // 面板一样本对 {x, y}；null = 未采样/已失效
   var sumCache = {}; // 面板二缓存：modeId -> { samples, M }；参数变更即清空
   var projW = null; // projDot 的固定投影矩阵 {D, H, key, wQ, wK}；随参数/种子失效
+  var fixedVecCache = null; // dotFixed 的固定 ±1 向量；随参数/种子失效
+  var sumBatchCount = 0; // 面板二已采批次（叠加采样时派生新随机子流）
   var charts = {};
 
   /** 随机种子（全局共享）；salt 区分各条随机流，保证两面板样本无交集 */
@@ -251,31 +254,67 @@
     return projW;
   }
 
-  /** 采指定模式并存入缓存；M 随 D 自适应（总采样量封顶 ~1.6e7 个分量） */
-  function sampleSumMode(modeId) {
+  /** 各模式的目标样本量：M 随维度自适应，控制总计算量（采样前即可预知） */
+  function sumPlannedM(modeId) {
+    var D = state.sum.D;
     if (modeId === 'projDot') {
-      var D = state.sum.D;
-      var H = state.sum.H;
-      var sigma = Math.sqrt(state.sum.sigma2);
-      var w = getProjW();
-      // 每样本 2HD 次乘加：预算 ~3e8，M 随之自适应
-      var M = Math.max(500, Math.min(20000, Math.floor(3e8 / (2 * H * D))));
-      var samples = S.sampleProjDot(S.makeRng(currentSeed(43)), M, D, H, sigma, w.wQ, w.wK);
-      sumCache.projDot = { samples: samples, M: M };
-      return;
+      // 每样本 2HD 次乘加：预算 ~3e8
+      return Math.max(500, Math.min(20000, Math.floor(3e8 / (2 * state.sum.H * D))));
     }
+    // 每样本 ~2D 次高斯：预算 ~1.6e7
+    return Math.max(2000, Math.min(60000, Math.floor(1.6e7 / (2 * D))));
+  }
+
+  /** dotFixed 的固定向量：只生成一次（±1 分量，‖v‖² = D 恒成立），跨批次复用 */
+  function getFixedVec() {
+    if (!fixedVecCache) {
+      fixedVecCache = S.makeFixedVector(S.makeRng(currentSeed(23) ^ 0x9e3779b9), state.sum.D);
+    }
+    return fixedVecCache;
+  }
+
+  /**
+   * 叠加采样：新采一批追加到该模式缓存（样本更平滑）；
+   * 每批用递增批次号派生新随机子流，保证批次间样本独立。
+   */
+  function sampleSumAppend(modeId) {
     var D = state.sum.D;
     var sigma = Math.sqrt(state.sum.sigma2);
-    var M = Math.max(2000, Math.min(60000, Math.floor(1.6e7 / (2 * D))));
-    var salt = modeId === 'dotRandom' ? 11 : modeId === 'dotFixed' ? 23 : 37;
-    var seed = currentSeed(salt);
-    var fixedVec = null;
-    if (modeId === 'dotFixed') {
-      // 固定向量只生成一次：±1 分量（‖v‖² = D 恒成立）
-      fixedVec = S.makeFixedVector(S.makeRng(seed ^ 0x9e3779b9), D);
+    var M = sumPlannedM(modeId);
+    sumBatchCount++;
+    var batch = sumBatchCount;
+    var samples;
+    if (modeId === 'projDot') {
+      var w = getProjW();
+      samples = S.sampleProjDot(
+        S.makeRng(currentSeed(43 + batch)),
+        M,
+        D,
+        state.sum.H,
+        sigma,
+        w.wQ,
+        w.wK
+      );
+    } else {
+      var salt = (modeId === 'dotRandom' ? 11 : modeId === 'dotFixed' ? 23 : 37) + batch * 1000;
+      samples = S.sampleSum(
+        S.makeRng(currentSeed(salt)),
+        modeId,
+        M,
+        D,
+        sigma,
+        modeId === 'dotFixed' ? getFixedVec() : null
+      );
     }
-    var samples = S.sampleSum(S.makeRng(seed), modeId, M, D, sigma, fixedVec);
-    sumCache[modeId] = { samples: samples, M: M };
+    var prev = sumCache[modeId];
+    if (prev) {
+      var merged = new Float64Array(prev.samples.length + samples.length);
+      merged.set(prev.samples);
+      merged.set(samples, prev.samples.length);
+      sumCache[modeId] = { samples: merged, M: prev.M + M };
+    } else {
+      sumCache[modeId] = { samples: samples, M: M };
+    }
   }
 
   function renderSum() {
@@ -371,13 +410,17 @@
         fmt(mv.mean) +
         '、方差 ' +
         fmt(mv.variance) +
-        '（M=' +
+        '（累计 M=' +
         pack.M.toLocaleString() +
-        ' 个独立向量）';
+        ' 个向量，点「采样」继续叠加）';
     } else {
-      text += ' ｜ <span class="stat-dim">未采样——点参数行「采样」叠加蒙特卡洛直方图</span>';
+      text +=
+        ' ｜ <span class="stat-dim">未采样——点「采样」叠加一批蒙特卡洛样本（每批 M=' +
+        sumPlannedM(mode.id).toLocaleString() +
+        ' 个向量）</span>';
     }
     el.sumStats.innerHTML = text;
+    el.btnSampleSum.textContent = pack ? '追加采样' : '采样';
   }
 
   /** H 控件只在投影点积模式下显示 */
@@ -395,6 +438,8 @@
   function invalidateSum() {
     sumCache = {};
     projW = null;
+    fixedVecCache = null;
+    sumBatchCount = 0;
     markNeedSample(el.btnSampleSum, true);
     renderSum();
   }
@@ -506,9 +551,12 @@
       });
     });
     el.btnSampleSum.addEventListener('click', function () {
-      sampleSumMode(state.sum.mode); // 只采当前模式，其余模式切换后再按需采
+      sampleSumAppend(state.sum.mode); // 只采当前模式；重复点击叠加新批次
       markNeedSample(el.btnSampleSum, false);
       renderSum();
+    });
+    el.btnResetSum.addEventListener('click', function () {
+      invalidateSum(); // 清空样本缓存并高亮采样按钮
     });
 
     // —— 全局 ——
