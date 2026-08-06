@@ -167,17 +167,22 @@
   /**
    * 乘积正态：z = x·y，x、y 独立 N(0, σ²)。
    * f(z) = K_0(|z|/a) / (πa)，a = σxσy = σ²；均值 0，方差 a²。
-   * z=0 处对数发散（可积），|z| 截断到 1e-300 避免数值问题。
+   * z=0 处对数发散（可积）——返回 Infinity，绘图层转为断点。
    */
   function productPDF(z, sigma) {
+    if (z === 0) return Infinity;
     var a = sigma * sigma;
     var az = Math.max(Math.abs(z), 1e-300);
     return Math.exp(logK0(az / a)) / (Math.PI * a);
   }
 
-  /** 平方：z = x²，x ~ N(0, σ²)。即 σ²·χ²₁；均值 σ²，方差 2σ⁴。z≤0 密度为 0 */
+  /**
+   * 平方：z = x²，x ~ N(0, σ²)。即 σ²·χ²₁；均值 σ²，方差 2σ⁴。
+   * z<0 密度为 0；z=0 处 z^{-1/2} 奇异——返回 Infinity，绘图层转为断点。
+   */
   function squarePDF(z, sigma) {
-    if (z <= 0) return 0;
+    if (z < 0) return 0;
+    if (z === 0) return Infinity;
     var s2 = sigma * sigma;
     // f(z) = z^{-1/2} e^{-z/(2σ²)} / (σ√(2π))
     return Math.exp(-0.5 * Math.log(z) - z / (2 * s2)) / (sigma * Math.sqrt(2 * Math.PI));
@@ -189,12 +194,19 @@
    *   f(z) = (|z|/(2a))^ν · K_ν(|z|/a) / (√π Γ(D/2) a)，ν = (D-1)/2
    * 验证：D=1 退化为乘积正态；D=2 时 K_{1/2} 初等，退化为 Laplace(0, a)。
    * 均值 0，方差 D·a²。
+   * z=0 边界：D=1 对数发散（Infinity，绘图层转断点）；
+   * D≥2 时极限有限——由 K_ν(u) ~ 2^{ν-1}Γ(ν)u^{-ν} 得
+   * f(0) = Γ(ν) / (2√π·Γ(p)·a)（D=2 时为 1/(2a)，即 Laplace 起点）。
    */
   function dotRandomPDF(z, D, sigma) {
     var a = sigma * sigma;
     var p = D / 2;
     var nu = (D - 1) / 2;
-    var az = Math.max(Math.abs(z), 1e-300);
+    if (z === 0) {
+      if (D === 1) return Infinity;
+      return Math.exp(lgamma(nu) - lgamma(p)) / (2 * Math.sqrt(Math.PI) * a);
+    }
+    var az = Math.abs(z);
     var logf =
       nu * (Math.log(az) - Math.log(2 * a)) +
       logBesselK(nu, az / a) -
@@ -209,10 +221,19 @@
     return normalPDF(z, 0, D * sigma * sigma);
   }
 
-  /** 长度平方：z = ‖x‖² = Σ x_i²，即 σ²·χ²_D。均值 Dσ²，方差 2Dσ⁴ */
+  /**
+   * 长度平方：z = ‖x‖² = Σ x_i²，即 σ²·χ²_D。均值 Dσ²，方差 2Dσ⁴。
+   * z=0 边界按自由度区分：D=1 时 z^{-1/2} 奇异（Infinity，绘图层转断点）；
+   * D=2 时为指数分布，f(0) = 1/(2σ²)；D≥3 时 f(0) = 0。
+   */
   function norm2PDF(z, D, sigma) {
-    if (z <= 0) return 0;
+    if (z < 0) return 0;
     var s2 = sigma * sigma;
+    if (z === 0) {
+      if (D === 1) return Infinity;
+      if (D === 2) return 1 / (2 * s2);
+      return 0;
+    }
     var k = D;
     var logf =
       (k / 2 - 1) * Math.log(z / s2) -

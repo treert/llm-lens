@@ -72,9 +72,10 @@ console.log('[2] 密度函数数值积分 ≈ 1');
 {
   const n = 20000;
   check('normalPDF N(0,1)', Math.abs(integrate((z) => T.normalPDF(z, 0, 1), -8, 8, n) - 1) < 1e-6);
-  // 乘积正态在 z=0 对数奇异：z=u² 换元后被积函数 ~ u·ln u（连续、可积），梯形法快收敛
+  // 乘积正态在 z=0 对数奇异：z=u² 换元后被积函数 ~ u·ln u（连续、可积），梯形法快收敛；
+  // 从 u=1e-12 起积避开 z=0 的 Infinity 端点（该处被积函数极限为 0，损失可忽略）
   const intProduct = (sigma, B, m) =>
-    2 * integrate((u) => T.productPDF(u * u, sigma) * 2 * u, 0, Math.sqrt(B), m);
+    2 * integrate((u) => T.productPDF(u * u, sigma) * 2 * u, 1e-12, Math.sqrt(B), m);
   check('productPDF σ=1（z=u² 换元）', Math.abs(intProduct(1, 12, 200000) - 1) < 1e-4);
   check('productPDF σ=0.7（z=u² 换元）', Math.abs(intProduct(0.7, 8, 200000) - 1) < 1e-4);
   // z = t² 换元消掉 z^{-1/2} 奇异；从 t=1e-9 起积：squarePDF(0)=0 是硬截断，
@@ -192,8 +193,22 @@ console.log('[4] 直方图与边界行为');
   for (let i = 0; i < h.density.length; i++) total += h.density[i] * 50000 * (6 / 60);
   check('直方图计数守恒（箱内 + 范围外 = N）', Math.abs(total - 50000) < 1e-6, 'got ' + total);
   check('squarePDF 负半轴为 0', T.squarePDF(-1, 1) === 0);
-  check('norm2PDF z=0 为 0', T.norm2PDF(0, 1, 1) === 0);
-  check('dotRandomPDF(0, D=1) 有限（对截断）', isFinite(T.dotRandomPDF(0, 1, 1)));
+  check('squarePDF(0) 发散（χ²₁ 的 z^{-1/2} 奇异）', T.squarePDF(0, 1) === Infinity);
+  check('norm2PDF z=0：D=1 发散', T.norm2PDF(0, 1, 1) === Infinity);
+  check('norm2PDF z=0：D=2 为 1/(2σ²)（指数分布起点）', T.norm2PDF(0, 2, 1) === 0.5);
+  check('norm2PDF z=0：D≥3 为 0', T.norm2PDF(0, 3, 1) === 0);
+  check('productPDF(0) 发散（对数奇异）', T.productPDF(0, 1) === Infinity);
+  check('dotRandomPDF(0)：D=1 发散', T.dotRandomPDF(0, 1, 1) === Infinity);
+  check(
+    'dotRandomPDF(0)：D=2 为 1/(2a)（Laplace 起点）',
+    relErr(T.dotRandomPDF(0, 2, 1), 0.5) < 1e-12,
+    'got ' + T.dotRandomPDF(0, 2, 1)
+  );
+  check(
+    'dotRandomPDF(0)：D=3 为 1/π（极限公式 Γ(ν)/(2√π Γ(p) a)）',
+    relErr(T.dotRandomPDF(0, 3, 1), 1 / Math.PI) < 1e-12,
+    'got ' + T.dotRandomPDF(0, 3, 1)
+  );
 }
 
 console.log('');

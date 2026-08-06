@@ -123,6 +123,8 @@
 
     var series = T.ELEMENT_OPS.map(function (op) {
       var active = op.id === state.elem.op;
+      // 理论线裁剪到该运算的支撑集：平方只画 z≥0（卡方无负半轴），避免贴地 0 值长线
+      var or = op.range(sigma);
       return {
         name: op.label,
         type: 'line',
@@ -132,8 +134,8 @@
           function (z) {
             return op.pdf(z, sigma);
           },
-          lo,
-          hi,
+          Math.max(lo, or[0]),
+          Math.min(hi, or[1]),
           260
         ),
         lineStyle: { color: op.color, width: active ? 3 : 1.2, opacity: active ? 1 : 0.55 },
