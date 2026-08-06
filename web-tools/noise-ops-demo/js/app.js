@@ -1,10 +1,10 @@
 /**
  * UI 层：控件状态、采样驱动、ECharts 渲染。
  *
- * 三个面板：
+ * 两个面板：
  *   1. 按元素运算：5 条理论密度曲线同图对比 + 选中运算的蒙特卡洛直方图；
  *   2. 求和类：点积（双方随机 / 一方固定）与长度平方的直方图 + 精确理论曲线；
- *   3. 点积方差随 D 扫描（log-log）：验证"σ²=1/D 时点积方差是否为 1"。
+ *      两种点积模式的方差对比即回答"σ²=1/D 时点积方差是否为 1"。
  */
 (function () {
   'use strict';
@@ -25,14 +25,6 @@
     return Number(x.toPrecision(4)).toString();
   }
 
-  function logspace(a, b, n) {
-    var out = [];
-    var la = Math.log(a);
-    var lb = Math.log(b);
-    for (var i = 0; i < n; i++) out.push(Math.exp(la + ((lb - la) * i) / (n - 1)));
-    return out;
-  }
-
   // ---------- 控件 ----------
   var el = {
     sliderD: $('sliderD'),
@@ -43,9 +35,6 @@
     chkSeed: $('chkSeed'),
     inputSeed: $('inputSeed'),
     btnResample: $('btnResample'),
-    btnScan: $('btnScan'),
-    selScanM: $('selScanM'),
-    status: $('status'),
     elementStats: $('elementStats'),
     sumStats: $('sumStats'),
   };
@@ -69,8 +58,6 @@
   var pairs = null; // 按元素运算共享的样本对 {x, y}
   var sumCache = {}; // modeId -> { samples, M }
   var charts = {};
-  var scanData = null; // { lineId: [[D, sampleVar], ...] }
-  var scanRunning = false;
 
   // ---------- σ² 预设 ----------
   function sigma2FromPreset(preset, D) {
@@ -333,144 +320,6 @@
       ' 个独立向量）';
   }
 
-  // ---------- 面板 3：点积方差随 D 扫描 ----------
-  var SCAN_DS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
-  var SCAN_LINES = [
-    {
-      id: 'r1',
-      label: '双方随机 σ²=1',
-      color: '#6b7280',
-      sigma2: function () { return 1; },
-      theoryVar: function (D) { return D; },
-      mode: 'dotRandom',
-    },
-    {
-      id: 'r1d',
-      label: '双方随机 σ²=1/D',
-      color: '#c2410c',
-      sigma2: function (D) { return 1 / D; },
-      theoryVar: function (D) { return 1 / D; },
-      mode: 'dotRandom',
-    },
-    {
-      id: 'r1s',
-      label: '双方随机 σ²=1/√D',
-      color: '#2563eb',
-      sigma2: function (D) { return 1 / Math.sqrt(D); },
-      theoryVar: function () { return 1; },
-      mode: 'dotRandom',
-    },
-    {
-      id: 'f1d',
-      label: '一方固定 σ²=1/D',
-      color: '#0d9488',
-      sigma2: function (D) { return 1 / D; },
-      theoryVar: function () { return 1; },
-      mode: 'dotFixed',
-    },
-  ];
-
-  function renderScan(data) {
-    var grid = logspace(1, 4096, 60);
-    var series = SCAN_LINES.map(function (L) {
-      return {
-        // MC 散点与理论线同名：共用图例项，点击一起开关
-        name: L.label,
-        type: 'line',
-        showSymbol: false,
-        animation: false,
-        data: grid.map(function (D) {
-          return [D, L.theoryVar(D)];
-        }),
-        lineStyle: {
-          color: L.color,
-          width: 2,
-          type: L.mode === 'dotFixed' ? 'dashed' : 'solid',
-        },
-        emphasis: { disabled: true },
-      };
-    });
-    if (data) {
-      SCAN_LINES.forEach(function (L) {
-        var pts = data[L.id];
-        if (!pts || !pts.length) return;
-        series.push({
-          name: L.label,
-          type: 'scatter',
-          animation: false,
-          data: pts,
-          symbolSize: 7,
-          itemStyle: { color: L.color, opacity: 0.75, borderColor: '#fff', borderWidth: 1 },
-        });
-      });
-    }
-    charts.scan.setOption(
-      {
-        grid: { left: 95, right: 24, top: 40, bottom: 44 },
-        legend: { top: 4, type: 'scroll' },
-        tooltip: { trigger: 'axis', valueFormatter: fmt },
-        xAxis: { type: 'log', name: '维数 D', min: 1, max: 4096 },
-        yAxis: {
-          type: 'log',
-          name: 'Var(点积)',
-          nameLocation: 'middle',
-          nameRotate: 90,
-          nameGap: 58,
-          axisLabel: { formatter: fmt },
-        },
-        series: series,
-      },
-      true
-    );
-  }
-
-  /** 扫描：一个 (D, 线) 组合一个时间片，避免长任务卡死页面 */
-  function runScan() {
-    if (scanRunning) return;
-    scanRunning = true;
-    el.btnScan.disabled = true;
-    var M = +el.selScanM.value;
-    var tasks = [];
-    SCAN_DS.forEach(function (D) {
-      SCAN_LINES.forEach(function (L) {
-        tasks.push({ D: D, L: L });
-      });
-    });
-    scanData = {};
-    SCAN_LINES.forEach(function (L) {
-      scanData[L.id] = [];
-    });
-    var idx = 0;
-    var t0 = performance.now();
-
-    function step() {
-      var t = tasks[idx];
-      var sigma = Math.sqrt(t.L.sigma2(t.D));
-      var seed = (12345 + idx * 7919) >>> 0; // 固定种子序列，扫描结果可复现
-      var fv =
-        t.L.mode === 'dotFixed' ? S.makeFixedVector(S.makeRng(seed ^ 0xabcdef), t.D) : null;
-      var samples = S.sampleSum(S.makeRng(seed), t.L.mode, M, t.D, sigma, fv);
-      scanData[t.L.id].push([t.D, S.sampleMeanVar(samples).variance]);
-      idx++;
-      el.status.textContent =
-        '方差扫描中 ' + idx + '/' + tasks.length + '（每点 M=' + M.toLocaleString() + '）…';
-      renderScan(scanData);
-      if (idx < tasks.length) {
-        setTimeout(step, 0);
-      } else {
-        scanRunning = false;
-        el.btnScan.disabled = false;
-        el.status.textContent =
-          '扫描完成：' +
-          tasks.length +
-          ' 个点，耗时 ' +
-          ((performance.now() - t0) / 1000).toFixed(1) +
-          's（点击图例可开关曲线）';
-      }
-    }
-    setTimeout(step, 0);
-  }
-
   // ---------- 控件事件 ----------
   function onDChange(D) {
     state.D = D;
@@ -564,23 +413,18 @@
         renderSum();
       });
     });
-
-    el.btnScan.addEventListener('click', runScan);
   }
 
   // ---------- 初始化 ----------
   function init() {
     charts.element = echarts.init($('chartElement'));
     charts.sum = echarts.init($('chartSum'));
-    charts.scan = echarts.init($('chartScan'));
     bindControls();
     refreshSigma2();
     resample();
-    renderScan(null); // 先画理论线，散点等"运行扫描"
     window.addEventListener('resize', function () {
       charts.element.resize();
       charts.sum.resize();
-      charts.scan.resize();
     });
   }
 

@@ -11,16 +11,13 @@
   <header>
     <div class="header-row">
       <h1>噪音向量的基本运算：分布视角</h1>
-      <p class="mc-status" id="status"></p>
     </div>
     <p class="subtitle">
       x、y 为 D 维向量，各分量独立同分布 N(0, σ²)。LLM 的线性部分不外三种运算：<strong>加</strong>、<strong>数乘</strong>、<strong>点积</strong>
       （矩阵投影 = 每行一个点积，组成新向量）。本页从概率密度、均值、方差三个视角演示：
       <strong class="legend-note note-blue">加 / 数乘保持正态</strong>，
       <strong class="legend-note note-orange">按元素乘变成"乘积正态"（尖峰重尾）</strong>，
-      <strong class="legend-note note-red">平方变成卡方（均值漂离 0）</strong>；
-      并回答一个关键问题：<strong>σ² = 1/D 能否让两个噪音向量的点积方差为 1？</strong>
-      ——双方皆随机时是 1/D（差一个因子 D），一方固定时才是 1，见面板三。
+      <strong class="legend-note note-red">平方变成卡方（均值漂离 0）</strong>。
     </p>
   </header>
 
@@ -60,7 +57,7 @@
   <main>
     <div class="chart-wrap">
       <div class="panel-head">
-        <h2>面板一 · 按元素运算（逐分量分布）</h2>
+        <h2>按元素运算（逐分量分布）</h2>
         <div class="op-radios">
           <label><input type="radio" name="elementOp" value="x" /> x</label>
           <label><input type="radio" name="elementOp" value="add" /> x+y</label>
@@ -81,7 +78,7 @@
 
     <div class="chart-wrap">
       <div class="panel-head">
-        <h2>面板二 · 求和：点积与长度</h2>
+        <h2>求和：点积与长度</h2>
         <div class="op-radios">
           <label><input type="radio" name="sumMode" value="dotRandom" checked /> 点积 x·y（双方随机）</label>
           <label><input type="radio" name="sumMode" value="dotFixed" /> 点积 x·v（一方固定 ±1）</label>
@@ -92,32 +89,11 @@
       <p class="chart-note" id="sumStats"></p>
       <p class="chart-note">
         点积 = 先按元素乘再求和：D=1 即乘积正态（尖峰），D=2 恰为 Laplace 分布，D 增大由中心极限定理趋于正态（拖 D 滑杆看全过程）。
-        双方随机时 Var = D·σ⁴；一方固定（v 分量 ±1，‖v‖² = D）时是精确正态 N(0, Dσ²)，Var = D·σ²。
-        ‖x‖² ~ σ²χ²(D)：均值 Dσ²、相对涨落 √(2/D)，高维时长度集中到 σ√D（RMSNorm 能工作的前提）。
-      </p>
-    </div>
-
-    <div class="chart-wrap">
-      <div class="panel-head">
-        <h2>面板三 · 点积方差随 D（验证 σ²=1/D 猜想）</h2>
-        <div class="op-radios">
-          <label for="selScanM">每点样本</label>
-          <select id="selScanM">
-            <option value="300">300</option>
-            <option value="1000" selected>1000</option>
-            <option value="3000">3000</option>
-          </select>
-          <button id="btnScan" type="button">运行扫描</button>
-        </div>
-      </div>
-      <div id="chartScan" class="chart"></div>
-      <p class="chart-note">
-        横轴维数 D、纵轴点积方差，均为对数刻度。
-        双方随机：Var(点积) = D·σ⁴ —— σ²=1 随 D 线性增长（灰）；σ²=1/D 缩成 1/D（橙，<strong>猜想不成立</strong>：差一个因子 D）；
-        σ²=1/√D 才恒为 1（蓝）。一方固定：Var = D·σ²，σ²=1/D 恒为 1（青虚线，<strong>猜想成立</strong>）。
-        LLM 对应：线性层初始化 W ~ N(0, 1/D<sub>in</sub>) 属"一方固定"（输入对本次前向传播是给定的），输出方差保持 1；
+        双方随机时 Var = D·σ⁴；一方固定（v 分量 ±1，‖v‖² = D）时是精确正态 N(0, Dσ²)，Var = D·σ²——
+        故 σ²=1/D 时前者方差为 1/D、后者恰为 1：<strong>"1/D 让点积方差为 1"只在一方固定时成立</strong>。
+        LLM 对应：线性层初始化 W ~ N(0, 1/D<sub>in</sub>) 属一方固定（输入对本次前向传播是给定的），输出方差保持 1；
         attention 的 q·k 双方皆随机、分量方差 ≈ 1，点积方差 = D<sub>k</sub>，故 softmax 前除以 √D<sub>k</sub>。
-        散点为蒙特卡洛实测（固定种子），应与理论线吻合。
+        ‖x‖² ~ σ²χ²(D)：均值 Dσ²、相对涨落 √(2/D)，高维时长度集中到 σ√D（RMSNorm 能工作的前提）。
       </p>
     </div>
   </main>

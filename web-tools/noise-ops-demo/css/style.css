@@ -154,15 +154,6 @@ select {
   font-size: 13px;
 }
 
-.mc-status {
-  margin: 0;
-  font-size: 12px;
-  color: #57606a;
-  line-height: 1.6;
-  min-height: 1.2em;
-  text-align: right;
-}
-
 main {
   display: grid;
   grid-template-columns: 1fr;
