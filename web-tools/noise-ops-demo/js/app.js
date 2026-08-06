@@ -194,7 +194,7 @@
 
     charts.element.setOption(
       {
-        grid: { left: 60, right: 24, top: 40, bottom: 44 },
+        grid: { left: 80, right: 24, top: 40, bottom: 44 },
         legend: { top: 4, type: 'scroll' },
         tooltip: { trigger: 'axis', valueFormatter: fmt },
         xAxis: {
@@ -207,6 +207,9 @@
         yAxis: {
           type: 'value',
           name: '密度',
+          nameLocation: 'middle',
+          nameRotate: 90,
+          nameGap: 50,
           max: hist.peak > 0 ? hist.peak * 1.3 : null,
           axisLabel: { formatter: fmt },
         },
@@ -285,7 +288,7 @@
 
     charts.sum.setOption(
       {
-        grid: { left: 60, right: 24, top: 40, bottom: 44 },
+        grid: { left: 80, right: 24, top: 40, bottom: 44 },
         legend: { top: 4 },
         tooltip: { trigger: 'axis', valueFormatter: fmt },
         xAxis: {
@@ -298,6 +301,9 @@
         yAxis: {
           type: 'value',
           name: '密度',
+          nameLocation: 'middle',
+          nameRotate: 90,
+          nameGap: 50,
           max: hist.peak > 0 ? hist.peak * 1.3 : null,
           axisLabel: { formatter: fmt },
         },
@@ -400,13 +406,16 @@
     }
     charts.scan.setOption(
       {
-        grid: { left: 70, right: 24, top: 40, bottom: 44 },
+        grid: { left: 95, right: 24, top: 40, bottom: 44 },
         legend: { top: 4, type: 'scroll' },
         tooltip: { trigger: 'axis', valueFormatter: fmt },
         xAxis: { type: 'log', name: '维数 D', min: 1, max: 4096 },
         yAxis: {
           type: 'log',
           name: 'Var(点积)',
+          nameLocation: 'middle',
+          nameRotate: 90,
+          nameGap: 58,
           axisLabel: { formatter: fmt },
         },
         series: series,

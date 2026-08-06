@@ -112,6 +112,7 @@
       </div>
       <div id="chartScan" class="chart"></div>
       <p class="chart-note">
+        横轴维数 D、纵轴点积方差，均为对数刻度。
         双方随机：Var(点积) = D·σ⁴ —— σ²=1 随 D 线性增长（灰）；σ²=1/D 缩成 1/D（橙，<strong>猜想不成立</strong>：差一个因子 D）；
         σ²=1/√D 才恒为 1（蓝）。一方固定：Var = D·σ²，σ²=1/D 恒为 1（青虚线，<strong>猜想成立</strong>）。
         LLM 对应：线性层初始化 W ~ N(0, 1/D<sub>in</sub>) 属"一方固定"（输入对本次前向传播是给定的），输出方差保持 1；
