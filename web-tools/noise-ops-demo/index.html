@@ -58,10 +58,11 @@
       <p class="chart-note" id="elementStats"></p>
       <p class="chart-note">
         本面板演示<strong>标量</strong>：x、y 为独立噪音标量，x, y ~ N(0, σ²)
-        （也可理解为向量的任意一个分量——按元素运算后各分量仍 iid，单分量分布即整体）。
-        相加仍是正态（方差相加）；按元素乘是乘积正态 f(z) = K₀(|z|/σ²)/(πσ²)，
-        0 处对数尖峰、重尾（峰度 9），方差 = σ⁴（方差的乘积）；平方是缩放卡方 σ²χ²₁，
-        只有正半轴且均值从 0 漂到 σ²——"能量"不再关于 0 对称。曲线为精确理论密度。
+        （也可理解为向量的任意一个分量——按元素运算后各分量仍 iid，单分量分布即整体）。曲线为精确理论密度。
+        <span class="note-seg" data-elem-op="x">x 即 N(0, σ²) 正态本身，是其余三种运算的参照基准。</span>
+        <span class="note-seg" data-elem-op="add">相加仍是正态（方差相加）：x+y ~ N(0, 2σ²)。</span>
+        <span class="note-seg" data-elem-op="product">按元素乘是乘积正态 f(z) = K₀(|z|/σ²)/(πσ²)，0 处对数尖峰、重尾（峰度 9），方差 = σ⁴（方差的乘积）。</span>
+        <span class="note-seg" data-elem-op="square">平方是缩放卡方 σ²χ²₁，只有正半轴且均值从 0 漂到 σ²——"能量"不再关于 0 对称。</span>
       </p>
     </div>
 
@@ -99,17 +100,10 @@
       <p class="chart-note" id="sumStats"></p>
       <p class="chart-note">
         本面板演示<strong>向量</strong>：x、y 为 D 维向量，各分量独立同分布 N(0, σ²)，考察把 D 个分量求和压成标量的运算。
-        点积 = 先按元素乘再求和：D=1 即乘积正态（尖峰），D=2 恰为 Laplace 分布，D 增大由中心极限定理趋于正态（拖 D 滑杆看全过程）。
-        双方随机时 Var = D·σ⁴；一方固定（v 分量 ±1，‖v‖² = D）时是精确正态 N(0, Dσ²)，Var = D·σ²——
-        故 σ²=1/D 时前者方差为 1/D、后者恰为 1：<strong>"1/D 让点积方差为 1"只在一方固定时成立</strong>。
-        LLM 对应：线性层初始化 W ~ N(0, 1/D<sub>in</sub>) 属一方固定（输入对本次前向传播是给定的），输出方差保持 1；
-        attention 的 q·k 双方皆随机、分量方差 ≈ 1，点积方差 = D<sub>k</sub>，故 softmax 前除以 √D<sub>k</sub>。
-        ‖x‖² ~ σ²χ²(D)：均值 Dσ²、相对涨落 √(2/D)，高维时长度集中到 σ√D（RMSNorm 能工作的前提）。
-        <br />
-        投影点积（attention 分数）：s = (W_QA)·(W_KB)/√H，W_Q、W_K 为 H×D 随机初始化矩阵（σ_w²=1/D，由种子生成后固定）。
-        初始化后投影保持分量方差（q、k 分量方差仍是 σ²），点积方差 = H·σ⁴，除以 √H 后 <strong>Var = σ⁴，与 D、H 都无关</strong>——
-        拖 H 只剩形状变化（H=1 尖峰、H=2 Laplace、大 H 正态）而尺度稳定。训练后取决于 M = W_QᵀW_K 的奇异值谱（H 只是有效秩上限），
-        推导见 <code>docs/attention-score-distribution.md</code>。
+        <span class="note-seg" data-sum-mode="dotRandom">点积 = 先按元素乘再求和：D=1 即乘积正态（尖峰），D=2 恰为 Laplace 分布，D 增大由中心极限定理趋于正态（拖 D 滑杆看全过程）。双方随机时 Var = D·σ⁴。LLM 对应：attention 的 q·k 双方皆随机、分量方差 ≈ 1，点积方差 = D<sub>k</sub>，故 softmax 前除以 √D<sub>k</sub>。</span>
+        <span class="note-seg" data-sum-mode="dotFixed">一方固定（v 分量 ±1，‖v‖² = D）时是精确正态 N(0, Dσ²)，Var = D·σ²。与双方随机（Var = D·σ⁴）对比：σ²=1/D 时一方固定恰为 1、双方随机只有 1/D——<strong>"1/D 让点积方差为 1"只在一方固定时成立</strong>。LLM 对应：线性层初始化 W ~ N(0, 1/D<sub>in</sub>) 属一方固定（输入对本次前向传播是给定的），输出方差保持 1。</span>
+        <span class="note-seg" data-sum-mode="norm2">‖x‖² ~ σ²χ²(D)：均值 Dσ²、相对涨落 √(2/D)，高维时长度集中到 σ√D（RMSNorm 能工作的前提）。</span>
+        <span class="note-seg" data-sum-mode="projDot">投影点积（attention 分数）：s = (W_QA)·(W_KB)/√H，W_Q、W_K 为 H×D 随机初始化矩阵（σ_w²=1/D，由种子生成后固定）。初始化后投影保持分量方差（q、k 分量方差仍是 σ²），点积方差 = H·σ⁴，除以 √H 后 <strong>Var = σ⁴，与 D、H 都无关</strong>——拖 H 只剩形状变化（H=1 尖峰、H=2 Laplace、大 H 正态）而尺度稳定。训练后取决于 M = W_QᵀW_K 的奇异值谱（H 只是有效秩上限），推导见 <code>docs/attention-score-distribution.md</code>。</span>
       </p>
     </div>
   </main>

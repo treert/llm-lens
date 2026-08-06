@@ -215,6 +215,7 @@
       text += ' ｜ <span class="stat-dim">未采样——点参数行「采样」叠加蒙特卡洛直方图</span>';
     }
     el.elementStats.innerHTML = text;
+    refreshNoteSegs('elem-op', state.elem.op);
   }
 
   // ---------- 面板二：求和类 ----------
@@ -421,11 +422,21 @@
     }
     el.sumStats.innerHTML = text;
     el.btnSampleSum.textContent = pack ? '追加采样' : '采样';
+    refreshNoteSegs('sum-mode', state.sum.mode);
   }
 
   /** H 控件只在投影点积模式下显示 */
   function refreshHVisibility() {
     el.hControl.style.display = state.sum.mode === 'projDot' ? '' : 'none';
+  }
+
+  /** 说明分段联动：只显示当前选中曲线/模式对应的说明段（data-<name> 属性匹配） */
+  function refreshNoteSegs(name, value) {
+    document
+      .querySelectorAll('.note-seg[data-' + name + ']')
+      .forEach(function (seg) {
+        seg.style.display = seg.getAttribute('data-' + name) === value ? '' : 'none';
+      });
   }
 
   // ---------- 样本失效 ----------
