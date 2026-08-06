@@ -121,7 +121,7 @@ $W_Q$/上投影，偏离倍数反映训练对初始化比例的改写）。注�
 - **工程现实**：Megatron 系常用全局固定 std（如 0.02，等效扇入 2500）+ 输出层缩放，
   不逐矩阵按扇入。能粗放的前提是失配在同数量级内，
   且有 pre-norm 归一化、Adam 逐参数归一、softmax 温度容忍三重兜底；
-  失配差出数量级照样发散（熵坍缩/logit 发散，见 [qk-spectrum.md](qk-spectrum.md) §3）。
+  失配差出数量级照样发散（熵坍缩/logit 发散，见 [qk-spectrum.md](qk-spectrum.md) §4）。
 
 ## 5. 演示对应
 
