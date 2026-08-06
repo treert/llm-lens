@@ -63,7 +63,7 @@
     useSeed: true,
     seed: 42,
     elem: { sigma2: 1, N: 200000, op: 'product' },
-    sum: { D: 16, H: 64, sigma2preset: '1/D', sigma2: 1 / 16, mode: 'dotRandom' },
+    sum: { D: 8192, H: 128, sigma2preset: '1/D', sigma2: 1 / 8192, mode: 'dotRandom' },
   };
 
   var pairs = null; // 面板一样本对 {x, y}；null = 未采样/已失效
@@ -454,7 +454,7 @@
       }
       D = Math.max(1, Math.min(8192, D));
       el.inputD.value = D;
-      el.sliderD.value = Math.max(0, Math.min(12, Math.round(Math.log2(D))));
+      el.sliderD.value = Math.max(0, Math.min(13, Math.round(Math.log2(D))));
       onDChange(D);
     });
     presetButtons.forEach(function (b) {
