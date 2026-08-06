@@ -72,12 +72,18 @@
           <label><input type="radio" name="sumMode" value="dotRandom" checked /> 点积 x·y（双方随机）</label>
           <label><input type="radio" name="sumMode" value="dotFixed" /> 点积 x·v（一方固定 ±1）</label>
           <label><input type="radio" name="sumMode" value="norm2" /> 长度平方 ‖x‖²</label>
+          <label><input type="radio" name="sumMode" value="projDot" /> 投影点积（attention 分数）</label>
         </div>
       </div>
       <div class="panel-controls">
         <label for="sliderD">维数 D</label>
         <input id="sliderD" type="range" min="0" max="12" step="1" value="4" />
         <input id="inputD" type="number" min="1" max="8192" step="1" value="16" />
+        <span class="control-group" id="hControl" style="display: none">
+          <label for="sliderH">头维 H</label>
+          <input id="sliderH" type="range" min="0" max="9" step="1" value="6" />
+          <input id="inputH" type="number" min="1" max="512" step="1" value="64" />
+        </span>
         <label>分量方差 σ²</label>
         <div class="preset-group">
           <button type="button" data-preset="1">1</button>
@@ -98,6 +104,11 @@
         LLM 对应：线性层初始化 W ~ N(0, 1/D<sub>in</sub>) 属一方固定（输入对本次前向传播是给定的），输出方差保持 1；
         attention 的 q·k 双方皆随机、分量方差 ≈ 1，点积方差 = D<sub>k</sub>，故 softmax 前除以 √D<sub>k</sub>。
         ‖x‖² ~ σ²χ²(D)：均值 Dσ²、相对涨落 √(2/D)，高维时长度集中到 σ√D（RMSNorm 能工作的前提）。
+        <br />
+        投影点积（attention 分数）：s = (W_QA)·(W_KB)/√H，W_Q、W_K 为 H×D 随机初始化矩阵（σ_w²=1/D，由种子生成后固定）。
+        初始化后投影保持分量方差（q、k 分量方差仍是 σ²），点积方差 = H·σ⁴，除以 √H 后 <strong>Var = σ⁴，与 D、H 都无关</strong>——
+        拖 H 只剩形状变化（H=1 尖峰、H=2 Laplace、大 H 正态）而尺度稳定。训练后取决于 M = W_QᵀW_K 的奇异值谱（H 只是有效秩上限），
+        推导见 <code>docs/attention-score-distribution.md</code>。
       </p>
     </div>
   </main>

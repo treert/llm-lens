@@ -123,6 +123,48 @@
   }
 
   /**
+   * 生成 H×D 投影矩阵（attention 的 W_Q / W_K）：元素 iid N(0, σw²)，按行存储。
+   * 初始化后固定使用——模型视角：权重给定、输入随机。
+   */
+  function makeProjection(gauss, H, D, sigmaW) {
+    var W = new Float64Array(H * D);
+    for (var i = 0; i < W.length; i++) W[i] = sigmaW * gauss();
+    return W;
+  }
+
+  /**
+   * 投影点积（attention 分数）采样：s = (W_Q A)·(W_K B)/√H
+   * （scaled dot-product attention 的做法：÷√H 后 Var = σ⁴，与 D、H 无关）。
+   * W_Q、W_K 固定（由 makeProjection 事先生成），A、B 每个样本新采（分量 N(0, σ²)）。
+   * 返回 M 个分数样本。
+   */
+  function sampleProjDot(gauss, M, D, H, sigma, wQ, wK) {
+    var out = new Float64Array(M);
+    var A = new Float64Array(D);
+    var B = new Float64Array(D);
+    for (var m = 0; m < M; m++) {
+      var i, j;
+      for (j = 0; j < D; j++) {
+        A[j] = sigma * gauss();
+        B[j] = sigma * gauss();
+      }
+      var s = 0;
+      for (i = 0; i < H; i++) {
+        var off = i * D;
+        var qi = 0;
+        var ki = 0;
+        for (j = 0; j < D; j++) {
+          qi += wQ[off + j] * A[j];
+          ki += wK[off + j] * B[j];
+        }
+        s += qi * ki;
+      }
+      out[m] = s / Math.sqrt(H);
+    }
+    return out;
+  }
+
+  /**
    * 直方图分箱：把 samples 投到 [lo, hi] 的 nBins 个等宽箱。
    * 返回 { centers, density, under, over }，density = count/(N·binWidth)，
    * 范围外样本计入 under/over 不进 density。
@@ -173,6 +215,8 @@
     applyElementOp: applyElementOp,
     makeFixedVector: makeFixedVector,
     sampleSum: sampleSum,
+    makeProjection: makeProjection,
+    sampleProjDot: sampleProjDot,
     histogram: histogram,
     sampleMeanVar: sampleMeanVar,
   };

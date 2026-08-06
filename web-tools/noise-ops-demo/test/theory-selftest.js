@@ -152,6 +152,35 @@ console.log('[3] 理论均值/方差与采样一致（固定种子）');
     relErr(n2.variance, 2 * D * Math.pow(sigma, 4)) < 0.08,
     'got ' + n2.variance
   );
+
+  // 投影点积（attention 分数）：条件于固定 W 的精确方差 = σ⁴·‖W_QᵀW_K‖_F²，
+  // 样本方差应贴合该条件值（只含采样误差）；‖M‖_F² 的期望 = H（σw²=1/D），
+  // 单个 W 的涨落 ~√2/D（D=32 时 ≈4.4%），后者作弱检查
+  const Dp = 32;
+  const Hp = 16;
+  const gW = S.makeRng(11);
+  const wQ = S.makeProjection(gW, Hp, Dp, 1 / Math.sqrt(Dp));
+  const wK = S.makeProjection(gW, Hp, Dp, 1 / Math.sqrt(Dp));
+  let fro2 = 0;
+  for (let a = 0; a < Dp; a++) {
+    for (let b = 0; b < Dp; b++) {
+      let m = 0;
+      for (let i = 0; i < Hp; i++) m += wQ[i * Dp + a] * wK[i * Dp + b];
+      fro2 += m * m;
+    }
+  }
+  const pd = S.sampleMeanVar(S.sampleProjDot(S.makeRng(12), 50000, Dp, Hp, sigma, wQ, wK));
+  check('projDot：均值 ≈ 0', Math.abs(pd.mean) < 0.05, 'got ' + pd.mean);
+  check(
+    'projDot：样本方差 = σ⁴‖W_QᵀW_K‖_F²/H（÷√H 后的条件精确式）',
+    relErr(pd.variance, (Math.pow(sigma, 4) * fro2) / Hp) < 0.03,
+    'got ' + pd.variance + ' expect ' + (Math.pow(sigma, 4) * fro2) / Hp
+  );
+  check(
+    'projDot：‖M‖_F² ≈ H（期望关系，容差覆盖个体涨落）',
+    relErr(fro2, Hp) < 0.15,
+    'got ' + fro2
+  );
 }
 
 // ---------- 4. 直方图守恒与边界 ----------

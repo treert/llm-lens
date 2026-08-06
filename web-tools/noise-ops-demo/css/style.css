@@ -231,6 +231,17 @@ main {
   width: 180px;
 }
 
+/* 面板参数行内的控件小组（如头维 H：标签+滑块+输入框），可整体隐藏 */
+.panel-controls .control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-controls .control-group input[type="range"] {
+  width: 140px;
+}
+
 .controls-hint {
   font-size: 12px;
   color: #8c959f;

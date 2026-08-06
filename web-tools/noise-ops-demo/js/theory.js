@@ -273,6 +273,9 @@
 
   /**
    * 求和类运算。D、sigma 为参数；一方固定模式取 v_i ∈ {±1}（‖v‖² = D）。
+   * projDot（投影点积 / attention 分数）额外需要头维 H（第三个参数）：
+   * σ_w² = 1/D 时投影保持分量方差，分布退化为 H 维双方随机点积，
+   * 推导见 docs/attention-score-distribution.md。
    */
   var SUM_MODES = [
     {
@@ -311,6 +314,23 @@
         var m = D * s2;
         var s = Math.sqrt(2 * D) * s2;
         return [Math.max(0, m - 6 * s), m + 6 * s];
+      },
+    },
+    {
+      id: 'projDot',
+      label: '投影点积 (W_QA)·(W_KB)/√H',
+      color: '#7c3aed',
+      mean: function () { return 0; },
+      // ÷√H 后 Var = σ⁴，与 D、H 都无关（scaled dot-product attention 的做法）
+      variance: function (D, sigma) { return Math.pow(sigma, 4); },
+      pdf: function (z, D, sigma, H) {
+        // s/√H 的密度：√H·f(√H·z)，f 为 H 维双方随机点积（分量方差 σ²）
+        var r = Math.sqrt(H);
+        return r * dotRandomPDF(r * z, H, sigma);
+      },
+      range: function (D, sigma) {
+        var s = sigma * sigma;
+        return [-6 * s, 6 * s];
       },
     },
   ];

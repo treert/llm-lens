@@ -47,6 +47,9 @@
     // 面板二
     sliderD: $('sliderD'),
     inputD: $('inputD'),
+    hControl: $('hControl'),
+    sliderH: $('sliderH'),
+    inputH: $('inputH'),
     inputSigmaSum: $('inputSigmaSum'),
     btnSampleSum: $('btnSampleSum'),
     sumStats: $('sumStats'),
@@ -60,11 +63,12 @@
     useSeed: true,
     seed: 42,
     elem: { sigma2: 1, N: 200000, op: 'product' },
-    sum: { D: 16, sigma2preset: '1/D', sigma2: 1 / 16, mode: 'dotRandom' },
+    sum: { D: 16, H: 64, sigma2preset: '1/D', sigma2: 1 / 16, mode: 'dotRandom' },
   };
 
   var pairs = null; // 面板一样本对 {x, y}；null = 未采样/已失效
   var sumCache = {}; // 面板二缓存：modeId -> { samples, M }；参数变更即清空
+  var projW = null; // projDot 的固定投影矩阵 {D, H, key, wQ, wK}；随参数/种子失效
   var charts = {};
 
   /** 随机种子（全局共享）；salt 区分各条随机流，保证两面板样本无交集 */
@@ -226,8 +230,38 @@
     });
   }
 
+  /**
+   * projDot 的投影矩阵：σ_w² = 1/D（标准初始化），由种子生成后固定；
+   * D、H 或种子变化时重建。
+   */
+  function getProjW() {
+    var D = state.sum.D;
+    var H = state.sum.H;
+    var key = D + '|' + H + '|' + currentSeed(0);
+    if (projW && projW.key === key) return projW;
+    var g = S.makeRng(currentSeed(41));
+    var sigmaW = 1 / Math.sqrt(D);
+    projW = {
+      key: key,
+      wQ: S.makeProjection(g, H, D, sigmaW),
+      wK: S.makeProjection(g, H, D, sigmaW),
+    };
+    return projW;
+  }
+
   /** 采指定模式并存入缓存；M 随 D 自适应（总采样量封顶 ~1.6e7 个分量） */
   function sampleSumMode(modeId) {
+    if (modeId === 'projDot') {
+      var D = state.sum.D;
+      var H = state.sum.H;
+      var sigma = Math.sqrt(state.sum.sigma2);
+      var w = getProjW();
+      // 每样本 2HD 次乘加：预算 ~3e8，M 随之自适应
+      var M = Math.max(500, Math.min(20000, Math.floor(3e8 / (2 * H * D))));
+      var samples = S.sampleProjDot(S.makeRng(currentSeed(43)), M, D, H, sigma, w.wQ, w.wK);
+      sumCache.projDot = { samples: samples, M: M };
+      return;
+    }
     var D = state.sum.D;
     var sigma = Math.sqrt(state.sum.sigma2);
     var M = Math.max(2000, Math.min(60000, Math.floor(1.6e7 / (2 * D))));
@@ -245,10 +279,11 @@
   function renderSum() {
     var sigma = Math.sqrt(state.sum.sigma2);
     var D = state.sum.D;
+    var H = state.sum.H; // 仅 projDot 模式使用
     var mode = T.SUM_MODES.filter(function (m) {
       return m.id === state.sum.mode;
     })[0];
-    var r = mode.range(D, sigma);
+    var r = mode.range(D, sigma, H);
     var lo = r[0];
     var hi = r[1];
 
@@ -263,7 +298,7 @@
         animation: false,
         data: theoryLine(
           function (z) {
-            return mode.pdf(z, D, sigma);
+            return mode.pdf(z, D, sigma, H);
           },
           lo,
           hi,
@@ -318,14 +353,15 @@
     var text =
       'D=' +
       D +
+      (mode.id === 'projDot' ? '、H=' + H : '') +
       '、σ²=' +
       fmt(state.sum.sigma2) +
       '：<b>' +
       mode.label +
       '</b> 理论 均值 ' +
-      fmt(mode.mean(D, sigma)) +
+      fmt(mode.mean(D, sigma, H)) +
       '、方差 ' +
-      fmt(mode.variance(D, sigma));
+      fmt(mode.variance(D, sigma, H));
     if (pack) {
       var mv = S.sampleMeanVar(pack.samples);
       text +=
@@ -342,6 +378,11 @@
     el.sumStats.innerHTML = text;
   }
 
+  /** H 控件只在投影点积模式下显示 */
+  function refreshHVisibility() {
+    el.hControl.style.display = state.sum.mode === 'projDot' ? '' : 'none';
+  }
+
   // ---------- 样本失效 ----------
   function invalidateElement() {
     pairs = null;
@@ -351,6 +392,7 @@
 
   function invalidateSum() {
     sumCache = {};
+    projW = null;
     markNeedSample(el.btnSampleSum, true);
     renderSum();
   }
@@ -433,9 +475,31 @@
       refreshSigma2();
       invalidateSum();
     });
+    // H：滑块走 2 的幂，输入框允许任意 1~512
+    function onHChange(H) {
+      state.sum.H = H;
+      invalidateSum();
+    }
+    el.sliderH.addEventListener('input', function () {
+      var H = Math.pow(2, +el.sliderH.value);
+      el.inputH.value = H;
+      onHChange(H);
+    });
+    el.inputH.addEventListener('change', function () {
+      var H = Math.round(+el.inputH.value);
+      if (!isFinite(H)) {
+        el.inputH.value = state.sum.H;
+        return;
+      }
+      H = Math.max(1, Math.min(512, H));
+      el.inputH.value = H;
+      el.sliderH.value = Math.max(0, Math.min(9, Math.round(Math.log2(H))));
+      onHChange(H);
+    });
     document.querySelectorAll('input[name="sumMode"]').forEach(function (r) {
       r.addEventListener('change', function () {
         state.sum.mode = r.value;
+        refreshHVisibility();
         renderSum(); // 切换模式不失效：有缓存则显示直方图，无则纯理论线
       });
     });
@@ -468,6 +532,7 @@
     charts.sum = echarts.init($('chartSum'));
     bindControls();
     refreshSigma2();
+    refreshHVisibility();
     markNeedSample(el.btnSampleElem, true);
     markNeedSample(el.btnSampleSum, true);
     renderElement();
