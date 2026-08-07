@@ -78,7 +78,7 @@
     const mSup = T.mpSupport(c);
     const abSup = T.abNormSupport(c); // ABᵀ（H×H 摆法）÷c 归一的支撑
 
-    // 条目方差尺度：奇异值随矩阵倍数线性缩放（σ(αM) = α·σ(M)），
+    // 元素方差尺度：奇异值随矩阵倍数线性缩放（σ(αM) = α·σ(M)），
     // σ² 谱横轴 = 归一谱 × λ；单矩阵 λ1 = σ_w²D，乘积 λ2 = λ1²（收缩维数不同）。
     // 未归一时 ABᵀ 也按原始形态（均值 c·λ2）显示
     const D_DEMO = 2048;
@@ -202,10 +202,10 @@
             name: rawAB ? 'ABᵀ（H×H，原始）：c·(MP_c ⊠ MP_1)'
               : 'ABᵀ（H×H，÷c 归一）：MP_c ⊠ MP_1',
             type: 'line', showSymbol: false, smooth: true,
-            lineStyle: { width: 2, color: '#c2410c' },
-            itemStyle: { color: '#c2410c' },
+            lineStyle: { width: 2, color: '#7c3aed' },
+            itemStyle: { color: '#7c3aed' },
             data: abPts,
-            markLine: edgeLines([abSup[0] * scA, abSup[1] * scA], '#c2410c'),
+            markLine: edgeLines([abSup[0] * scA, abSup[1] * scA], '#7c3aed'),
           });
         }
         return s;

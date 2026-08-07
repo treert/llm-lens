@@ -6,7 +6,7 @@ $\boxtimes$（自由乘性卷积）的概念入门见 `docs/math/free-probabilit
 
 ## 0. 设定与记号
 
-- $A, B$：$H \times D$ 独立高斯矩阵，条目 iid $\mathcal{N}(0, \sigma_w^2)$；
+- $A, B$：$H \times D$ 独立高斯矩阵，元素 iid $\mathcal{N}(0, \sigma_w^2)$；
   初始化缩放取 $\sigma_w^2 = 1/D$，此时均值归一为 1；
 - $c = H/D \le 1$：大维极限下所有谱只依赖比值 $c$；
 - $\lambda = \sigma_w^2 D$：尺度因子（归一即 $\lambda = 1$）。奇异值随矩阵倍数线性缩放

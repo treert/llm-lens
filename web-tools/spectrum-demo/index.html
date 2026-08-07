@@ -13,12 +13,12 @@
       <h1>随机矩阵的奇异值谱：MP 律与 Fuss-Catalan</h1>
     </div>
     <p class="subtitle">
-      A、B 为 H×D 独立高斯矩阵（条目方差 1/D，即初始化缩放），大维极限下谱只依赖比值
+      A、B 为 H×D 独立高斯矩阵（元素方差 1/D，即初始化缩放），大维极限下谱只依赖比值
       c = H/D。<strong class="legend-note note-blue">蓝线：A 的平方奇异值谱 MP_c</strong>；
       <strong class="legend-note note-red">红线：乘积 AᵀB（D×D 摆法）的谱 MP_c ⊠ MP_c（c = 1 即 Fuss-Catalan FC₂）</strong>；
-      <strong class="legend-note note-orange">橙线：ABᵀ（H×H 摆法）÷c 归一的谱 MP_c ⊠ MP_1</strong>。
+      <strong class="legend-note note-purple">紫线：ABᵀ（H×H 摆法）÷c 归一的谱 MP_c ⊠ MP_1</strong>。
       蓝、红均值均为 1，乘积把方差从 c 拉宽到 2c——对应 docs/qk-spectrum.md §3 的初始化基线；
-      橙线是同一对矩阵的另一种乘法维度，均值本为 c，归一后形状仍与红线不同
+      紫线是同一对矩阵的另一种乘法维度，均值本为 c，归一后形状仍与红线不同
       （见 docs/math/random-matrix-spectra.md）。
     </p>
   </header>
@@ -36,7 +36,7 @@
       <button type="button" data-preset="0.0179">128/7168≈0.018</button>
     </div>
     <div class="control">
-      <label for="selScale">条目方差 σ_w²</label>
+      <label for="selScale">元素方差 σ_w²</label>
       <select id="selScale">
         <option value="norm" selected>1/D（归一，均值 1）</option>
         <option value="sqrt">1/√D</option>
@@ -83,16 +83,16 @@
           其中 g(M) = (M−1) / [M(1−c+cM)²]，M± = (3c ± √(c²+8c)) / (4c)（分支点方程 2cM² − 3cM + (c−1) = 0 的两根）；
           ABᵀ 行的 M₊ = (4c − 1 + √(1+8c)) / (4c)（方程 2cM² + (1−4c)M − 2(1−c) = 0 的正根，其左端 M₋ 根为负，对应 x₋ = 0）。
           c = 1 时三者统一：M₊ = 3/2，x₊ = 27/4。
-          图中橙线为 ABᵀ 的 ÷c 归一版（均值 1、方差 1+c、右端 M₊²(1−c+cM₊)/(M₊−1)）。
+          图中紫线为 ABᵀ 的 ÷c 归一版（均值 1、方差 1+c、右端 M₊²(1−c+cM₊)/(M₊−1)）。
         </p>
         <p>
           以上为 σ² 轴公式；σ 轴版本：s₋ = √x₋，s₊ = √x₊（对上表各式开根号即得，
           如 MP_c 为 s± = √λ(1 ± √c)，c=1 时 AᵀB 为 s₊ = λ√(27/4)）。
         </p>
         <p>
-          λ 的来源：条目方差改为 σ_w² 时奇异值整体乘 σ_w（σ(αM) = α·σ(M)），
+          λ 的来源：元素方差改为 σ_w² 时奇异值整体乘 σ_w（σ(αM) = α·σ(M)），
           σ² 谱横轴单矩阵乘 λ = σ_w²D、乘积乘 λ²（收缩维数不同）——形状不变，仅整体伸缩。
-          「条目方差 σ_w²」选项可演示（D 取 2048）：三条曲线伸缩倍数不同（λ vs λ²），
+          「元素方差 σ_w²」选项可演示（D 取 2048）：三条曲线伸缩倍数不同（λ vs λ²），
           未归一时量级悬殊、难以同图比较——这正是默认取 σ_w² = 1/D 归一的原因。
         </p>
         <p>

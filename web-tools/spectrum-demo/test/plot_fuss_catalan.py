@@ -1,7 +1,7 @@
 """画 Fuss-Catalan 分布 FC_2 的密度曲线,并用随机矩阵蒙特卡洛验证。
 
 FC_2 = 两个 Marchenko-Pastur 律的自由乘性卷积 MP_c ⊠ MP_c (c = H/D),
-即 M = W_Q^T W_K (独立高斯, 条目方差 1/D) 的非零平方奇异值的渐近密度。
+即 M = W_Q^T W_K (独立高斯, 元素方差 1/D) 的非零平方奇异值的渐近密度。
 
 理论密度由 S-变换推出: 矩生成函数 M(w) 满足三次方程
   w c^2 M^3 + 2w(1-c)c M^2 + (w(1-c)^2 - 1) M + 1 = 0,  w = 1/x
@@ -24,7 +24,7 @@ rng = np.random.default_rng(0)
 
 
 def squared_singular_values(D: int, H: int, n_trials: int) -> np.ndarray:
-    """Monte Carlo: M = W_Q^T W_K 的平方奇异值 (条目方差 1/D, 与初始化一致)。"""
+    """Monte Carlo: M = W_Q^T W_K 的平方奇异值 (元素方差 1/D, 与初始化一致)。"""
     out = []
     for _ in range(n_trials):
         Wq = rng.standard_normal((H, D)) / np.sqrt(D)
