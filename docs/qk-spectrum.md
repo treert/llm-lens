@@ -58,7 +58,10 @@ $\|M-M^\top\|_F^2 = 2\sum_i\sigma_i^2 - 2\sum_{i,j}\sigma_i\sigma_j\,(u_i\cdot v
   $H$ 个非零奇异值平方平均摊到 $\sim 1$；
 - 实际谱有 $O(1)$ 展宽：$M$ 是两个高斯矩阵的乘积，平方奇异值服从 **Fuss-Catalan 分布**
   （两个 Marchenko-Pastur 律的自由乘积，$H = D$ 时支撑 $[0,\; 27/4]$）；
-- $\mathrm{rank}(M) \le H$，$H \ll D$ 时 $D$ 个奇异值中至少 $D-H$ 个**精确为 0**。
+- $\mathrm{rank}(M) \le H$，$H \ll D$ 时 $D$ 个奇异值中至少 $D-H$ 个**精确为 0**；
+- 谱曲线的精确形式（$MP_c$ 自由乘积、乘法维度 $D\times D$ vs $H\times H$ 的影响、
+  AB/BA 辨析）统一维护在 `docs/math/random-matrix-spectra.md`；
+  交互对比工具见 `web-tools/spectrum-demo/`。
 
 ## 4. 训练后的经验规律（文献共识）
 

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>随机矩阵的奇异值谱：MP 律与 Fuss-Catalan</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <h1>随机矩阵的奇异值谱：MP 律与 Fuss-Catalan</h1>
+    </div>
+    <p class="subtitle">
+      A、B 为 H×D 独立高斯矩阵（条目方差 1/D，即初始化缩放），大维极限下谱只依赖比值
+      c = H/D。<strong class="legend-note note-blue">蓝线：A 的平方奇异值谱 MP_c</strong>；
+      <strong class="legend-note note-red">红线：乘积 AᵀB（D×D 摆法）的谱 MP_c ⊠ MP_c（c = 1 即 Fuss-Catalan FC₂）</strong>；
+      <strong class="legend-note note-orange">橙线：ABᵀ（H×H 摆法）÷c 归一的谱 MP_c ⊠ MP_1</strong>。
+      蓝、红均值均为 1，乘积把方差从 c 拉宽到 2c——对应 docs/qk-spectrum.md §3 的初始化基线；
+      橙线是同一对矩阵的另一种乘法维度，均值本为 c，归一后形状仍与红线不同
+      （见 docs/math/random-matrix-spectra.md）。
+    </p>
+  </header>
+
+  <section class="controls">
+    <div class="control control-slider">
+      <label for="sliderC">c = H/D</label>
+      <input id="sliderC" type="range" min="0" max="1000" value="1000" />
+      <input id="inputC" type="number" min="0.001" max="1" step="0.001" value="1.0000" />
+    </div>
+    <div class="control control-presets">
+      <button type="button" data-preset="1">c=1（FC₂）</button>
+      <button type="button" data-preset="0.25">1/4</button>
+      <button type="button" data-preset="0.0625">1/16</button>
+      <button type="button" data-preset="0.0179">128/7168≈0.018</button>
+    </div>
+    <div class="control">
+      <label for="selScale">条目方差 σ_w²</label>
+      <select id="selScale">
+        <option value="norm" selected>1/D（归一，均值 1）</option>
+        <option value="sqrt">1/√D</option>
+        <option value="one">1（未归一）</option>
+      </select>
+    </div>
+  </section>
+
+  <main>
+    <div class="chart-wrap">
+      <div class="chart-controls">
+        <span class="cc-group">
+          曲线：
+          <label><input id="chkMp" type="checkbox" checked /> A（单矩阵）</label>
+          <label><input id="chkProd" type="checkbox" checked /> AᵀB（乘积）</label>
+          <label><input id="chkAB" type="checkbox" checked /> ABᵀ（H×H）</label>
+        </span>
+        <span class="cc-group">
+          横轴：
+          <label><input id="radioSq" type="radio" name="axis" checked /> σ² 轴</label>
+          <label><input id="radioSigma" type="radio" name="axis" /> σ 轴</label>
+        </span>
+      </div>
+      <div id="chart" class="chart"></div>
+      <div id="stats" class="stats-wrap"></div>
+      <p class="chart-note" id="statsNote"></p>
+      <p class="chart-note">
+        竖直点线为各分布的支撑端点；端点数值与边缘行为见上表「左端点」「右端点」两行。
+        σ 轴视角下 c=1 的单矩阵谱即 quarter-circle 律 p(s) = √(4−s²)/π。
+      </p>
+      <div class="chart-note formula-block">
+        <p class="formula-title">各量公式（c = H/D，λ = σ_w²D；上方动态表为归一 λ = 1 的取值）：</p>
+        <table class="stats-table">
+          <thead>
+            <tr><th>曲线</th><th>均值</th><th>方差</th><th>x₋（左端）</th><th>x₊（右端）</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>A：MP_c</td><td>λ</td><td>cλ²</td><td>λ(1 − √c)²</td><td>λ(1 + √c)²</td></tr>
+            <tr><td>AᵀB：MP_c ⊠ MP_c</td><td>λ²</td><td>2cλ⁴</td><td>λ²/g(M₋)</td><td>λ²/g(M₊)</td></tr>
+            <tr><td>ABᵀ：c·(MP_c ⊠ MP_1)</td><td>cλ²</td><td>c²(1+c)λ⁴</td><td>0</td><td>cλ²·M₊²(1−c+cM₊)/(M₊−1)</td></tr>
+          </tbody>
+        </table>
+        <p>
+          其中 g(M) = (M−1) / [M(1−c+cM)²]，M± = (3c ± √(c²+8c)) / (4c)（分支点方程 2cM² − 3cM + (c−1) = 0 的两根）；
+          ABᵀ 行的 M₊ = (4c − 1 + √(1+8c)) / (4c)（方程 2cM² + (1−4c)M − 2(1−c) = 0 的正根，其左端 M₋ 根为负，对应 x₋ = 0）。
+          c = 1 时三者统一：M₊ = 3/2，x₊ = 27/4。
+          图中橙线为 ABᵀ 的 ÷c 归一版（均值 1、方差 1+c、右端 M₊²(1−c+cM₊)/(M₊−1)）。
+        </p>
+        <p>
+          以上为 σ² 轴公式；σ 轴版本：s₋ = √x₋，s₊ = √x₊（对上表各式开根号即得，
+          如 MP_c 为 s± = √λ(1 ± √c)，c=1 时 AᵀB 为 s₊ = λ√(27/4)）。
+        </p>
+        <p>
+          λ 的来源：条目方差改为 σ_w² 时奇异值整体乘 σ_w（σ(αM) = α·σ(M)），
+          σ² 谱横轴单矩阵乘 λ = σ_w²D、乘积乘 λ²（收缩维数不同）——形状不变，仅整体伸缩。
+          「条目方差 σ_w²」选项可演示（D 取 2048）：三条曲线伸缩倍数不同（λ vs λ²），
+          未归一时量级悬殊、难以同图比较——这正是默认取 σ_w² = 1/D 归一的原因。
+        </p>
+        <p>
+          σ 轴的均值/方差无初等闭式，动态表格中按数值积分给出。
+          唯一干净的特例：c = 1 单矩阵（quarter-circle），E[σ] = 8/(3π) ≈ 0.8488，
+          Var = 1 − 64/(9π²) ≈ 0.2795。
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/theory.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
