@@ -26,21 +26,21 @@
   <section class="controls">
     <div class="control control-slider">
       <label for="sliderC">c = H/D</label>
-      <input id="sliderC" type="range" min="0" max="1000" value="1000" />
-      <input id="inputC" type="number" min="0.001" max="1" step="0.001" value="1.0000" />
+      <input id="sliderC" type="range" min="0" max="1000" value="618" />
+      <input id="inputC" type="number" min="0.001" max="1" step="any" value="0.07143" />
     </div>
     <div class="control control-presets">
       <button type="button" data-preset="1">1 (FC₂)</button>
       <button type="button" data-preset="0.07143">512/7168</button>
       <button type="button" data-preset="0.01786">128/7168</button>
     </div>
-    <div class="control">
-      <label for="selScale">元素方差 σ_w²</label>
-      <select id="selScale">
-        <option value="norm" selected>1/D（归一，均值 1）</option>
-        <option value="sqrt">1/√D</option>
-        <option value="one">1（未归一）</option>
-      </select>
+    <div class="control control-slider">
+      <label for="sliderLam">单矩阵均值 λ = σ_w²D</label>
+      <input id="sliderLam" type="range" min="0" max="1000" value="500" />
+      <input id="inputLam" type="number" min="0.0001" max="10000" step="any" value="1.000" />
+    </div>
+    <div class="control control-presets">
+      <button type="button" data-lam="1">λ = 1（归一）</button>
     </div>
   </section>
 
@@ -90,14 +90,21 @@
         </p>
         <p>
           λ 的来源：元素方差改为 σ_w² 时奇异值整体乘 σ_w（σ(αM) = α·σ(M)），
-          σ² 谱横轴单矩阵乘 λ = σ_w²D、乘积乘 λ²（收缩维数不同）——形状不变，仅整体伸缩。
-          「元素方差 σ_w²」选项可演示（D 取 2048）：三条曲线伸缩倍数不同（λ vs λ²），
-          未归一时量级悬殊、难以同图比较——这正是默认取 σ_w² = 1/D 归一的原因。
+          σ² 谱横轴单矩阵乘 λ = σ_w²D、乘积乘 λ²（收缩维数不同）——形状不变，仅整体伸缩；
+          λ 同时就是单矩阵谱的均值（乘积谱均值 λ²），上方滑杆即直接选择 λ。
+          三条曲线伸缩倍数不同（λ vs λ²），λ ≠ 1 时量级悬殊、难以同图比较——
+          这正是默认取 λ = 1（即 σ_w² = 1/D 归一）的原因。
         </p>
         <p>
-          σ 轴的均值/方差无初等闭式，动态表格中按数值积分给出。
-          唯一干净的特例：c = 1 单矩阵（quarter-circle），E[σ] = 8/(3π) ≈ 0.8488，
+          σ 轴（s = σ）的均值/方差：E[σ] = ∫ₐᵇ √x·p(x) dx（等价地 ∫ s·p_σ(s) ds，p_σ(s) = 2s·p(s²)）。
+          单矩阵有超几何闭式 E[σ] = √λ·₂F₁(−1/2, 1/2; 2; c)——MP_c 的矩 E[x^s] = ₂F₁(−s, 1−s; 2; c)
+          解析延拓到 s = 1/2（整数 s 即 Narayana 多项式：s=1 得 1、s=2 得 1+c）；
+          它非初等函数（c &lt; 1 时等价于 ∫√((b−s²)(s²−a)) ds 型椭圆积分），
+          但方差闭式随之免费：E[σ²] = E[x] = λ 平凡，故 Var(σ) = λ − E[σ]²。
+          c = 1 时 Gauss 求和化为 quarter-circle 的初等结果 E[σ] = 8/(3π) ≈ 0.8488，
           Var = 1 − 64/(9π²) ≈ 0.2795。
+          乘积、ABᵀ 谱连这种超几何形式都没有——上方动态表在 σ 轴模式下：A 列取该 ₂F₁ 精确值，
+          乘积/ABᵀ 列按数值积分给出。
         </p>
       </div>
     </div>

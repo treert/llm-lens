@@ -1,5 +1,5 @@
 /**
- * spectrum-demo 的 UI 与渲染层：c = H/D 滑杆、σ²/σ 轴切换、ECharts 曲线。
+ * spectrum-demo 的 UI 与渲染层：c = H/D 与 λ = σ_w²D 滑杆、σ²/σ 轴切换、ECharts 曲线。
  * 数学公式全部在 theory.js（window.SpecTheory）。
  */
 (function () {
@@ -14,18 +14,27 @@
     chkMp: document.getElementById('chkMp'),
     chkProd: document.getElementById('chkProd'),
     chkAB: document.getElementById('chkAB'),
-    selScale: document.getElementById('selScale'),
+    sliderLam: document.getElementById('sliderLam'),
+    inputLam: document.getElementById('inputLam'),
     stats: document.getElementById('stats'),
     statsNote: document.getElementById('statsNote'),
   };
   const chart = echarts.init(document.getElementById('chart'));
 
-  const state = { c: 1, sigmaAxis: false, showMp: true, showProd: true, showAB: true };
+  // λ = σ_w²D：单矩阵谱的均值（乘积谱均值 λ²），滑杆直接选择它，不再显式出现 D
+  const state = { c: 0.07143, lam: 1, sigmaAxis: false, showMp: true, showProd: true, showAB: true };
 
   // c 滑杆对数映射：t ∈ [0,1000] -> c = 10^(-3 + 3t/1000) ∈ [1e-3, 1]
   function sliderToC(t) { return Math.pow(10, -3 + (3 * t) / 1000); }
   function cToSlider(c) {
     return Math.max(0, Math.min(1000, Math.round(((Math.log10(c) + 3) / 3) * 1000)));
+  }
+
+  // λ 滑杆对数映射：t ∈ [0,1000] -> λ = 10^(-4 + 8t/1000) ∈ [1e-4, 1e4]
+  // （λ 跨 8 个数量级，线性滑杆在小 λ 端无分辨率，故仍用对数；默认 λ=1 在正中 t=500）
+  function sliderToLam(t) { return Math.pow(10, -4 + (8 * t) / 1000); }
+  function lamToSlider(l) {
+    return Math.max(0, Math.min(1000, Math.round(((Math.log10(l) + 4) / 8) * 1000)));
   }
 
   function logspace(a, b, n) {
@@ -39,14 +48,26 @@
     return Number(x).toFixed(digits === undefined ? 4 : digits);
   }
 
+  // c 的显示用 4 位有效数字：c 跨 1e-3 ~ 1，固定小数位会在小 c 处丢精度
+  // （如 512/7168 = 0.07143 用 toFixed(4) 会截成 0.0714）
+  function fmtC(c) {
+    return Number(c).toPrecision(4);
+  }
+
   // 大数紧凑显示（未归一模式下 λ² 可达 1e6 量级）
   function fmtAuto(x) {
     if (x >= 1e5) return x.toExponential(2);
     return fmt(x, 4);
   }
 
-  // σ 轴（奇异值本身）的均值/方差无初等闭式，对归一化律做数值积分
-  // （p_σ(s) = 2s·p_σ²(s²)；c=1 单矩阵可校验：E[s] = 8/(3π)，Var = 1 − 64/(9π²)）
+  // λ 的显示同 c：4 位有效数字（跨 1e-4 ~ 1e4）
+  function fmtLam(l) {
+    return Number(l).toPrecision(4);
+  }
+
+  // σ 轴（奇异值本身）均值/方差的数值积分，仅供乘积/ABᵀ 谱使用
+  // （单矩阵列直接用 T.mpSigmaMean 的 ₂F₁ 精确闭式，不走这里）：
+  // p_σ(s) = 2s·p_σ²(s²)，对数网格 4000 段梯形
   function sigmaMoments(kind, c) {
     const sup = kind === 'mp' ? T.mpSupport(c)
       : kind === 'product' ? T.productSupport(c) : T.abNormSupport(c);
@@ -79,15 +100,12 @@
     const abSup = T.abNormSupport(c); // ABᵀ（H×H 摆法）÷c 归一的支撑
 
     // 元素方差尺度：奇异值随矩阵倍数线性缩放（σ(αM) = α·σ(M)），
-    // σ² 谱横轴 = 归一谱 × λ；单矩阵 λ1 = σ_w²D，乘积 λ2 = λ1²（收缩维数不同）。
+    // σ² 谱横轴 = 归一谱 × λ；单矩阵 λ1 = σ_w²D（即其均值），乘积 λ2 = λ1²（收缩维数不同）。
     // 未归一时 ABᵀ 也按原始形态（均值 c·λ2）显示
-    const D_DEMO = 2048;
-    const scaleMode = els.selScale.value;
-    const sw2 = scaleMode === 'sqrt' ? 1 / Math.sqrt(D_DEMO)
-      : scaleMode === 'one' ? 1 : 1 / D_DEMO;
-    const lam1 = sw2 * D_DEMO;
+    const lam1 = state.lam;
     const lam2 = lam1 * lam1;
-    const rawAB = scaleMode !== 'norm';
+    // λ = 1（即 σ_w² = 1/D）为归一模式：ABᵀ 显示 ÷c 归一版
+    const rawAB = Math.abs(lam1 - 1) > 1e-9;
     const scM = lam1;
     const scP = lam2;
     const scA = rawAB ? c * lam2 : 1;
@@ -229,15 +247,17 @@
           '2c = ' + fmt(T.productVariance(c), 4),
           '1+c = ' + fmt(1 + c, 4)];
     } else {
-      // σ 轴的均值/方差：无初等闭式，按当前尺度数值积分
-      const mm = sigmaMoments('mp', c);
+      // σ 轴：单矩阵列用精确闭式 E[σ] = √λ·₂F₁(−1/2, 1/2; 2; c)、Var = λ − E[σ]²
+      // （E[σ²] = E[x] = λ 平凡）；乘积/ABᵀ 列无干净形式，数值积分
+      const f = T.mpSigmaMean(c);
+      const mm = [f, 1 - f * f];
       const pm = sigmaMoments('product', c);
       const am = sigmaMoments('ab', c);
       meanDisp = [fmtAuto(Math.sqrt(scM) * mm[0]), fmtAuto(Math.sqrt(scP) * pm[0]),
         fmtAuto(Math.sqrt(scA) * am[0])];
       varDisp = [fmtAuto(scM * mm[1]), fmtAuto(scP * pm[1]), fmtAuto(scA * am[1])];
-      meanLabel = '均值（σ 轴，数值积分）';
-      varLabel = '方差（σ 轴，数值积分）';
+      meanLabel = '均值（σ 轴）';
+      varLabel = '方差（σ 轴）';
     }
     // 左端点与近 0 行为。σ² 轴：c<1 时 MP/乘积有空隙、ABᵀ 按 x^(-1/2) 发散，
     // c=1 时 MP 按 x^(-1/2)、乘积/ABᵀ 按 x^(-2/3) 发散；
@@ -286,15 +306,18 @@
     els.stats.innerHTML = html;
 
     // 表下附注
-    const notes = ['c = H/D = ' + fmt(c, 4)];
+    const notes = ['c = H/D = ' + fmtC(c)];
     if (rawAB) {
-      notes.push('σ_w² = ' + (scaleMode === 'sqrt' ? '1/√D' : '1') + '（按 D = ' + D_DEMO +
-        ' 演示）：横轴整体伸缩，单矩阵 ×λ = σ_w²D = ' + fmtAuto(lam1) +
-        '、乘积 ×λ² = ' + fmtAuto(lam2) + '——形状不变，但三条曲线伸缩倍数不同（λ vs λ²），未归一时量级悬殊');
+      notes.push('λ = σ_w²D = ' + fmtAuto(lam1) +
+        '：横轴整体伸缩，单矩阵 ×λ、乘积 ×λ² = ' + fmtAuto(lam2) +
+        '——形状不变，但三条曲线伸缩倍数不同（λ vs λ²），未归一时量级悬殊');
     } else if (state.showAB) {
-      notes.push('ABᵀ 列为 ÷c 归一后的曲线：原始 σ²(ABᵀ) 均值 c = ' + fmt(c, 4) +
+      notes.push('ABᵀ 列为 ÷c 归一后的曲线：原始 σ²(ABᵀ) 均值 c = ' + fmtC(c) +
         '、方差 c²(1+c) = ' + fmt(T.abVariance(c), 5) +
         '、支撑 [0, ' + fmt(c * abSup[1], 3) + ']');
+    }
+    if (state.sigmaAxis) {
+      notes.push('σ 轴均值/方差：A 列为精确值 √λ·₂F₁(−1/2, 1/2; 2; c)（Var = λ − E[σ]²），乘积/ABᵀ 列为数值积分');
     }
     if (c >= 0.9999) {
       notes.push('c = 1 时乘积谱即 Fuss-Catalan FC₂：支撑 [0, 27/4]，x→0 按 x^(-2/3) 发散（纵轴已截断），此时与 ABᵀ 曲线重合');
@@ -305,17 +328,36 @@
   function setC(c, fromSlider) {
     state.c = Math.max(1e-3, Math.min(1, c));
     if (!fromSlider) els.slider.value = cToSlider(state.c);
-    if (document.activeElement !== els.input) els.input.value = fmt(state.c, 4);
+    if (document.activeElement !== els.input) els.input.value = fmtC(state.c);
     render();
   }
 
   els.slider.addEventListener('input', function () {
     setC(sliderToC(Number(els.slider.value)), true);
-    els.input.value = fmt(state.c, 4);
+    els.input.value = fmtC(state.c);
   });
   els.input.addEventListener('change', function () {
     const v = Number(els.input.value);
     if (isFinite(v) && v > 0) setC(v, false);
+  });
+
+  function setLam(l, fromSlider) {
+    state.lam = Math.max(1e-4, Math.min(1e4, l));
+    if (!fromSlider) els.sliderLam.value = lamToSlider(state.lam);
+    if (document.activeElement !== els.inputLam) els.inputLam.value = fmtLam(state.lam);
+    render();
+  }
+
+  els.sliderLam.addEventListener('input', function () {
+    setLam(sliderToLam(Number(els.sliderLam.value)), true);
+    els.inputLam.value = fmtLam(state.lam);
+  });
+  els.inputLam.addEventListener('change', function () {
+    const v = Number(els.inputLam.value);
+    if (isFinite(v) && v > 0) setLam(v, false);
+  });
+  document.querySelectorAll('[data-lam]').forEach(function (btn) {
+    btn.addEventListener('click', function () { setLam(Number(btn.dataset.lam), false); });
   });
   els.axisSq.addEventListener('change', function () {
     state.sigmaAxis = false; render();
@@ -332,13 +374,14 @@
   els.chkAB.addEventListener('change', function () {
     state.showAB = els.chkAB.checked; render();
   });
-  els.selScale.addEventListener('change', function () { render(); });
   document.querySelectorAll('[data-preset]').forEach(function (btn) {
     btn.addEventListener('click', function () { setC(Number(btn.dataset.preset), false); });
   });
   window.addEventListener('resize', function () { chart.resize(); });
 
   els.slider.value = cToSlider(state.c);
-  els.input.value = fmt(state.c, 4);
+  els.input.value = fmtC(state.c);
+  els.sliderLam.value = lamToSlider(state.lam);
+  els.inputLam.value = fmtLam(state.lam);
   render();
 })();

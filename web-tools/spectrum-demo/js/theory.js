@@ -36,6 +36,24 @@
     return Math.sqrt((se[1] - x) * (x - se[0])) / (2 * Math.PI * c * x);
   }
 
+  /**
+   * σ 轴单矩阵均值 E[σ] = E[√x]（λ = 1 归一）：₂F₁(−1/2, 1/2; 2; c)。
+   * 来源：MP_c 的矩 E[x^s] = ₂F₁(−s, 1−s; 2; c)（整数 s 退化为 Narayana 多项式）
+   * 解析延拓到 s = 1/2。级数项 t_{n+1} = t_n·(n−1/2)(n+1/2)/[(n+2)(n+1)]·c，
+   * n ≥ 1 项恒负且渐近 ~ cⁿ/(2πn²)：c < 1 几何收敛；c = 1 按 n^(-2)，
+   * 尾和 ~ 1/(2πN)，1e-13 精度约需 4e5 项（毫秒级）。
+   * 校验：c = 1 时 Gauss 求和化为 8/(3π) ≈ 0.848826；Var(σ) = 1 − E[σ]²（E[σ²] = E[x] = 1）。
+   */
+  function mpSigmaMean(c) {
+    let sum = 1, t = 1;
+    for (let n = 0; n < 2000000; n++) {
+      t *= ((n - 0.5) * (n + 0.5)) / ((n + 2) * (n + 1)) * c;
+      sum += t;
+      if (Math.abs(t) < 1e-13) break;
+    }
+    return sum;
+  }
+
   // ---------- 乘积谱 MP_c ⊠ MP_c ----------
 
   /**
@@ -124,6 +142,7 @@
   global.SpecTheory = {
     mpSupport: mpSupport,
     mpDensity: mpDensity,
+    mpSigmaMean: mpSigmaMean,
     productSupport: productSupport,
     productDensity: productDensity,
     freePoissonProductDensity: freePoissonProductDensity,
