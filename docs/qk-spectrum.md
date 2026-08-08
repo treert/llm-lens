@@ -48,9 +48,13 @@ $$M = V_Q\,\bigl[\Sigma_Q\,(U_Q^\top U_K)\,\Sigma_K\bigr]\,V_K^\top$$
 
 **对称性探针**：若某头学成"相似性匹配"（找与自己像的），$W_Q \approx W_K$、
 $M$ 近对称半正定（$u_i \approx v_i$）；若是"序列匹配"（A 之后跟 B，induction 型），
-$M$ 强非对称。指标 $\mathrm{sym}(M) = \|M - M^\top\|_F\,/\,\|M\|_F$，其中
-$\|M-M^\top\|_F^2 = 2\sum_i\sigma_i^2 - 2\sum_{i,j}\sigma_i\sigma_j\,(u_i\cdot v_j)^2$；
-或看逐奇异项的 $u_i \cdot v_i$：相似性头 $\approx 0$，强非对称头 $\approx \sqrt{2}$。
+$M$ 强非对称。指标 $\mathrm{sym}(M) = \|M - M^\top\|_F\,/\,\|M\|_F = 2\|M_a\|_F/\|M\|_F$
+（$M_a$ 为反对称部分，值域 $[0, 2]$），其中
+$\|M-M^\top\|_F^2 = 2\sum_i\sigma_i^2 - 2\sum_{i,j}\sigma_i\sigma_j\,(u_i\cdot v_j)(u_j\cdot v_i)$。
+两个读数锚点：相似性头 $\mathrm{sym}(M) \approx 0$（$u_i \cdot v_i \approx \pm 1$）；
+序列匹配头 $\mathrm{sym}(M) \approx \sqrt{2}$——对应 $\langle M, M^\top\rangle_F = 0$
+（对称、反对称能量相等），典型充分条件是左右奇异子空间正交
+（$u_i \perp v_j$ 对所有 $i, j$，逐奇异项即 $u_i \cdot v_i \approx 0$）。
 
 ## 3. 初始化时的谱（基线）
 
