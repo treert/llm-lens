@@ -3,7 +3,8 @@
 通用数学笔记：位置（一个低信息量、高精确、与语义无关的整数）如何经由旋转编码
 进入点积注意力，以及长上下文外推困难的数学根源。
 注意力分数的**无位置**分量（内容匹配）见 `attention-score-distribution.md` 与
-`qk-spectrum.md`；本文分析位置依赖的结构。K3 的 MLA 部分旋转参数见 `kimi-k3.md`。
+`qk-spectrum.md`；本文分析位置依赖的结构。注意 K3 的 MLA 实为全 NoPE
+（仅保留维度划分，不旋转），见 §8 与 `kimi-k3.md`。
 
 ## 0. 设定与记号
 
@@ -111,19 +112,30 @@ logit 方差漂移，softmax 熵随之漂移——需乘温度补偿回初始化
 
 ## 8. 部分旋转（MLA）：空分复用 vs 频分复用
 
-K3 的 MLA（`kimi-k3.md`）：每头 QK 维度 = `qk_nope_head_dim` 128（内容，不旋转）
-+ `qk_rope_head_dim` 64（位置，旋转）。点积分块可加：
+标准 MLA（DeepSeek-V2/V3）采用**部分旋转**：每头 QK 维度 = nope（内容，不旋转）
++ rope（位置，旋转），点积分块可加：
 
 $$q \cdot k = \underbrace{q_{\text{nope}} \cdot k_{\text{nope}}}_{\text{纯内容}}
 + \underbrace{(R_i q_{\text{rope}}) \cdot (R_j k_{\text{rope}})}_{\text{纯位置调制}}$$
 
 ——§6 加性 PE 的"分离"优点与 RoPE 的"相对位置"优点的合体：
+位置只占用**专用子空间**（空分复用），而非标准 RoPE 的同维不同频率（频分复用）。
 
-- 位置只占用**专用子空间**（空分复用），而非标准 RoPE 的同维不同频率（频分复用）；
-- nope 部分的 $M$ 谱分析**完全不受位置污染**——`qk-spectrum.md` 的谱框架
-  在 nope 子空间上精确成立；
-- rope 分量在 MLA 中由各头共享的 kv 潜变量升维得到（`kv_lora_rank=512`），
-  位置行为跨头同质性高——各头的分工主要体现在 nope（内容）部分。
+**但 K3 的 MLA 是全 NoPE**（`kimi-k3.md` §位置编码：config `mla_use_nope=true`，
+建模代码 `rotary_emb=None`，全语言模型无任何 rotary 模块）。
+`qk_rope_head_dim=64` 只在**张量形状**上保留（`q_b_proj` 每头 192 = 128 + 64，
+`kv_a_proj_with_mqa` 576 = 512 + 64），不施加任何旋转，作为普通内容维度打分：
+
+$$q \cdot k = \underbrace{q_{\text{nope}} \cdot k_{\text{nope}}}_{\text{逐头内容（K 侧经 } kv_b \text{ 升维）}}
++ \underbrace{q_{\text{rot}} \cdot k_{\text{rot}}}_{\text{共享内容（K 侧由 } kv_a \text{ 直出，96 头同一份）}}$$
+
+- 位置信息完全由 KDA 层的 short_conv（kernel=4）与注意力因果结构提供，
+  MLA 打分中**没有任何位置分量**，上式不存在"纯位置调制"项；
+- 维度分块仍是空分复用，但复用的不是"内容/位置"，而是"逐头私有 / 全头共享"
+  两类内容通道：rot 块 K 侧 96 头一致，各头分工完全体现在 Q 侧与 nope 块；
+- 谱分析的含义：`qk-spectrum.md` 的 $M$ 谱框架对**整个 192 维 QK 空间**直接成立，
+  无需剥离位置项；两块能级的分界在实测谱上留下指纹
+  （$\sigma_i$ 在 $i \approx 64$ 处的台阶，见 `qk-spectrum-k3-empirical.md`）。
 
 ## 9. 静态分析切入点
 
@@ -134,8 +146,10 @@ RoPE 本身是与权重无关的纯数学对象（旋转矩阵可按频率直接
   随 $m$ 的变化（$m \in [-L, 0]$，因果注意力只用过去）；
 - **位置头指纹**：曲线在 $m = -1$ 附近的尖锐峰 → previous-token 型头；
   平坦曲线 → 内容主导头（位置通道振幅小）；
-- **MLA 分工检验**：分别对 nope / rope 子空间做上述分析，
-  对比各头内容矩阵谱的离散度 vs 位置行为的同质度（§8 的预测）。
+- **MLA 分工检验**（适用于旋转版 MLA）：分别对 nope / rope 子空间做上述分析，
+  对比各头内容矩阵谱的离散度 vs 位置行为的同质度；K3 为全 NoPE（§8），
+  无 $R_m$ 可构造，改为检验"nope 块逐头私有 vs rot 块 K 侧共享"的谱对比
+  （实测见 `qk-spectrum-k3-empirical.md`）。
 
 全程只读权重 + 构造旋转矩阵，符合项目静态分析原则（`kimi-k3.md`：
 MLA 投影为 bf16 可直接读）。
@@ -149,4 +163,4 @@ MLA 投影为 bf16 可直接读）。
 - B. Peng et al., *YaRN: Efficient Context Window Extension of Large Language Models*,
   2023——分频段插值与温度修正；
 - DeepSeek-AI, *DeepSeek-V2/V3 Technical Report*——MLA 的部分旋转
-  （nope/rope 分解）设计，K3 沿用。
+  （nope/rope 分解）设计；K3 只沿用维度划分，旋转弃用（全 NoPE，§8）。
