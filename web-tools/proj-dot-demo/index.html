@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>双随机投影的点积分布：Variance-Gamma 与夹角的遗忘</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <h1>双随机投影的点积分布：Variance-Gamma 与夹角的遗忘</h1>
+    </div>
+    <p class="subtitle">
+      s = (Ma A)·(Mb B) = Aᵀ M B（M = MaᵀMb，对应注意力 score (xW_Q)·(yW_K)）。
+      Ma、Mb 为 H×D 高斯矩阵（元素方差 1/D，初始化缩放），A、B 为单位向量，ρ = cos(A, B) 精确受控。
+      <strong class="legend-note note-blue">蓝线：方案一精确密度（对称 Variance-Gamma，Bessel-K 分布）——与 ρ 严格无关</strong>；
+      <strong class="legend-note note-red">红线：方案二/三的实例高斯——均值偏移 ρ·trM/D 由本批矩阵的 trM 决定，方向随机</strong>；
+      <strong class="legend-note note-teal">青色填充：蒙特卡洛直方图</strong>。
+      数学背景见 docs/qk-spectrum.md 的姊妹问题（那里看奇异值谱，这里看 score 标量）。
+    </p>
+  </header>
+
+  <section class="controls">
+    <div class="control control-scheme">
+      <label>方案</label>
+      <span class="seg">
+        <label><input type="radio" name="scheme" value="1" checked /> 一：固定 A、B，随机矩阵</label>
+        <label><input type="radio" name="scheme" value="2" /> 二：固定矩阵，随机 A、B</label>
+        <label><input type="radio" name="scheme" value="3" /> 三：固定相关矩阵，随机 A、B</label>
+      </span>
+    </div>
+  </section>
+
+  <section class="controls">
+    <div class="control control-slider">
+      <label for="sliderH">H（投影维）</label>
+      <input id="sliderH" type="range" min="0" max="1000" value="750" />
+      <input id="inputH" type="number" min="1" max="256" step="1" value="64" />
+    </div>
+    <div class="control control-slider">
+      <label for="sliderD">D（输入维）</label>
+      <input id="sliderD" type="range" min="0" max="1000" value="667" />
+      <input id="inputD" type="number" min="16" max="1024" step="1" value="256" />
+    </div>
+    <div class="control control-slider">
+      <label for="sliderRho">ρ = cos(A, B)</label>
+      <input id="sliderRho" type="range" min="0" max="1000" value="900" />
+      <input id="inputRho" type="number" min="-1" max="1" step="0.05" value="0.80" />
+    </div>
+    <div class="control control-slider">
+      <label for="sliderAlpha">α（矩阵相关）</label>
+      <input id="sliderAlpha" type="range" min="0" max="1000" value="200" />
+      <input id="inputAlpha" type="number" min="0" max="1" step="0.05" value="0.20" />
+    </div>
+  </section>
+
+  <section class="controls">
+    <div class="control">
+      <label for="selN">样本数</label>
+      <select id="selN">
+        <option value="10000">1 万</option>
+        <option value="30000" selected>3 万</option>
+        <option value="100000">10 万</option>
+        <option value="300000">30 万</option>
+      </select>
+    </div>
+    <div class="control">
+      <label for="inputSeed">矩阵种子</label>
+      <input id="inputSeed" type="number" min="0" step="1" value="1" />
+      <button type="button" id="btnSeed">换一批矩阵</button>
+    </div>
+    <div class="control">
+      <button type="button" id="btnResample">重新采样</button>
+    </div>
+    <div class="control control-inline">
+      <label><input id="chkAnneal" type="checkbox" /> 退火平均（24 批矩阵合并）</label>
+      <label><input id="chkExplicit" type="checkbox" /> 显式矩阵采样（验证 ρ 参与）</label>
+    </div>
+  </section>
+
+  <main>
+    <div class="chart-wrap">
+      <div class="chart-controls">
+        <span class="cc-group">
+          曲线：
+          <label><input id="chkVg" type="checkbox" checked /> VG 理论</label>
+          <label><input id="chkGauss" type="checkbox" /> 高斯近似</label>
+          <label><input id="chkInst" type="checkbox" checked /> 实例高斯（方案二/三）</label>
+        </span>
+        <span class="cc-group">
+          横轴：
+          <label><input id="radioNorm" type="radio" name="axis" checked /> 归一 ÷(√H/D)</label>
+          <label><input id="radioRaw" type="radio" name="axis" /> 原始 s</label>
+        </span>
+      </div>
+      <div id="chart" class="chart"></div>
+      <div id="stats" class="stats-wrap"></div>
+      <p class="chart-note" id="statsNote"></p>
+      <div class="chart-note formula-block">
+        <p class="formula-title">公式（单位向量 A、B；β = (1/D)·‖A‖‖B‖ = 1/D；ν = (H−1)/2）：</p>
+        <table class="stats-table">
+          <thead>
+            <tr><th>对象</th><th>密度 / 矩</th><th>备注</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>方案一：精确密度<br />（对称 Variance-Gamma）</td>
+              <td>f(s) = 2|s|^ν K_ν(|s|/β) / [(2β)^(ν+1) √π Γ(H/2)]<br />
+                方差 Hβ²，超额峰度 6/H</td>
+              <td>与 ρ 严格无关（双各向同性）；H = 1：K₀(|s|/β)/(πβ)，原点对数发散；<br />
+                H = 2：Laplace e^(−|s|/β)/(2β)；H → ∞：高斯化</td>
+            </tr>
+            <tr>
+              <td>方案二/三：条件矩<br />（固定 M，大维近似）</td>
+              <td>E[s] = ρ·trM/D<br />
+                Var(s) = [2ρ²‖M_s‖²_F + (1−ρ²)‖M‖²_F]/D²</td>
+              <td>随机无关矩阵：trM 均值 0、std √(H/D)（换种子变号），<br />
+                ‖M‖²_F ≈ H concentrate ⇒ 均值效应 ~ ρ/√D 被维度压没</td>
+            </tr>
+            <tr>
+              <td>方案三：trM 的确定性来源</td>
+              <td>Mb = αMa + √(1−α²)G ⇒ trM ≈ αH ± √(H/D)</td>
+              <td>均值偏移 ραH/D 是稳定信号，信噪比 ~ ρα√(HD)·… 随维度增强；<br />
+                对应训练后 W_QW_Kᵀ 脱离各向同性基线</td>
+            </tr>
+            <tr>
+              <td>对照：单投影保内积</td>
+              <td>E[(PA)·(PB)] = σ²H·(A·B)，而 E[(MaA)·(MbB)] = 0</td>
+              <td>单个随机投影保内积（JL 引理）；两个独立投影遗忘内积——<br />
+                随机初始化的注意力对 token 相关性是盲的</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          两方案的关系：ρ = 0 时方案二对矩阵系综取平均（退火）后与方案一<strong>严格同一分布</strong>
+          （(A, B, M) 的联合分布相同）；ρ ≠ 0 时方案一的分布严格不动，方案二的均值偏移
+          ρ·trM/D 依赖矩阵实例、系综平均为 0——这个差异本身就是 M 偏离各向同性的探针。
+          用自由概率的语言：随机无关的 Ma、Mb 使 M 与 (A, B) 的取向渐近自由，
+          QK 训练的本质就是打破这种自由性。
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/theory.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
