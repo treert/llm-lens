@@ -185,6 +185,22 @@
           </a>
         </li>
         <li class="tool-card">
+          <a href="web-tools/proj-len-demo/">
+            <h2>随机投影链的长度平方分布：卡方、乘积卡方与深度对数正态<span class="arrow">→</span></h2>
+            <p>
+              单位向量经高斯矩阵链投影后的长度平方 s = ‖B···BA X‖²：L=1 为卡方（伽马）、
+              L=2 为 Bessel-K₀ 乘积伽马（精确闭式）、深链趋近对数正态——均值恒为 c = H/D
+              （fan-in 保值），中位数却 ≈ c·e^(−L/H) 随深度萎缩：LayerNorm 的随机矩阵注脚。
+              quenched 对照展示长度统计的 self-averaging。
+            </p>
+            <div class="tags">
+              <span class="tag">随机矩阵</span>
+              <span class="tag">深度网络初始化</span>
+              <span class="tag">蒙特卡洛模拟</span>
+            </div>
+          </a>
+        </li>
+        <li class="tool-card">
           <a href="web-tools/noise-ops-demo/">
             <h2>噪音向量的基本运算：加、数乘、点积<span class="arrow">→</span></h2>
             <p>

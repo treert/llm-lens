@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>随机投影链的长度平方分布：卡方、乘积卡方与深度对数正态</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <h1>随机投影链的长度平方分布：卡方、乘积卡方与深度对数正态</h1>
+    </div>
+    <p class="subtitle">
+      s = ‖B_{L−1}···B₁A X‖²：A 为 H×D（元素方差 1/D）、B_l 为 H×H（方差 1/H，fan-in 缩放）
+      的独立高斯矩阵，X 为单位向量，L = 矩阵总数。
+      <strong class="legend-note note-blue">蓝线：L=1 伽马（χ²_H/D）/ L=2 K₀ 乘积伽马（精确）</strong>；
+      <strong class="legend-note note-purple">紫线：对数正态近似（深度极限）</strong>；
+      <strong class="legend-note note-red">红线：方案二实例高斯（固定链，随机 X）</strong>；
+      <strong class="legend-note note-teal">青色填充：蒙特卡洛直方图</strong>。
+      均值恒为 c = H/D（fan-in 保值），但中位数 ≈ c·e^(−L/H) 随深度萎缩——LayerNorm 的随机矩阵注脚。
+      姊妹篇：spectrum-demo（谱）、proj-dot-demo（点积）。
+    </p>
+  </header>
+
+  <section class="controls">
+    <div class="control control-scheme">
+      <label>方案</label>
+      <span class="seg">
+        <label><input type="radio" name="scheme" value="1" checked /> 一：固定 X，随机矩阵（annealed）</label>
+        <label><input type="radio" name="scheme" value="2" /> 二：固定矩阵链，随机 X（quenched）</label>
+      </span>
+    </div>
+  </section>
+
+  <section class="controls">
+    <div class="control">
+      <label for="selL">层数 L</label>
+      <select id="selL">
+        <option value="1" selected>1（单层 A：卡方）</option>
+        <option value="2">2（BA：乘积卡方）</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="8">8</option>
+        <option value="16">16（深链：对数正态）</option>
+      </select>
+    </div>
+    <div class="control control-slider">
+      <label for="sliderH">H（隐维）</label>
+      <input id="sliderH" type="range" min="0" max="1000" value="750" />
+      <input id="inputH" type="number" min="1" max="256" step="1" value="64" />
+    </div>
+    <div class="control control-slider">
+      <label for="sliderD">D（输入维）</label>
+      <input id="sliderD" type="range" min="0" max="1000" value="667" />
+      <input id="inputD" type="number" min="16" max="1024" step="1" value="256" />
+    </div>
+    <div class="control">
+      <label for="selN">样本数</label>
+      <select id="selN">
+        <option value="10000">1 万</option>
+        <option value="30000" selected>3 万</option>
+        <option value="100000">10 万</option>
+        <option value="300000">30 万</option>
+      </select>
+    </div>
+    <div class="control">
+      <label for="inputSeed">矩阵种子</label>
+      <input id="inputSeed" type="number" min="0" step="1" value="1" />
+      <button type="button" id="btnSeed">换一批矩阵</button>
+    </div>
+    <div class="control">
+      <button type="button" id="btnResample">重新采样</button>
+    </div>
+  </section>
+
+  <main>
+    <div class="chart-wrap">
+      <div class="chart-controls">
+        <span class="cc-group">
+          曲线：
+          <label><input id="chkTheory" type="checkbox" checked /> 精确理论（L≤2）</label>
+          <label><input id="chkLN" type="checkbox" /> 对数正态近似</label>
+          <label><input id="chkGauss" type="checkbox" /> 高斯近似</label>
+          <label><input id="chkInst" type="checkbox" checked /> 实例高斯（方案二）</label>
+        </span>
+        <span class="cc-group">
+          横轴：
+          <label><input id="radioNorm" type="radio" name="xnorm" checked /> 归一 ÷c</label>
+          <label><input id="radioRaw" type="radio" name="xnorm" /> 原始 s</label>
+          <label><input id="radioLinX" type="radio" name="xscale" checked /> 线性</label>
+          <label><input id="radioLogX" type="radio" name="xscale" /> 对数</label>
+        </span>
+        <span class="cc-group">
+          纵轴：
+          <label><input id="radioLinY" type="radio" name="yscale" checked /> 线性</label>
+          <label><input id="radioLogY" type="radio" name="yscale" /> 对数</label>
+        </span>
+      </div>
+      <div id="chart" class="chart"></div>
+      <div id="stats" class="stats-wrap"></div>
+      <p class="chart-note" id="statsNote"></p>
+      <div class="chart-note formula-block">
+        <p class="formula-title">公式（单位向量 X；c = H/D；ψ、ψ′ 为 digamma/trigamma）：</p>
+        <table class="stats-table">
+          <thead>
+            <tr><th>对象</th><th>密度 / 矩</th><th>备注</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>卡方因子化（精确，任意 L）</td>
+              <td>s = (1/D)·χ²_H·∏_{l=1..L−1}(χ²_H/H)，因子独立</td>
+              <td>条件于上层输出 Y，‖BY‖² = (‖Y‖²/H)χ²_H 且独立 ⇒ 递推；
+                与 X 方向严格无关（各向同性）</td>
+            </tr>
+            <tr>
+              <td>L = 1：伽马密度</td>
+              <td>f(s) = s^(k−1)e^(−s/θ) / (Γ(k)θ^k)，k = H/2，θ = 2/D</td>
+              <td>H = 1：s^(−1/2) 原点发散；H = 2：指数分布；H 大：高斯化</td>
+            </tr>
+            <tr>
+              <td>L = 2：K₀ 乘积伽马</td>
+              <td>f(s) = 2s^(k−1)K₀(2√(s/θ₁θ₂)) / (Γ(k)²(θ₁θ₂)^k)<br />
+                k = H/2，θ₁ = 2/D，θ₂ = 2/H</td>
+              <td>H = 2 时 K₀ 原点对数发散；右尾 e^(−2√(s/θ₁θ₂)) 拉伸指数（重尾化的第一层）</td>
+            </tr>
+            <tr>
+              <td>L 层矩（精确）</td>
+              <td>均值 c（不变）；方差 c²[(1+2/H)^L − 1]</td>
+              <td>fan-in 每层保持 E‖·‖²，但相对方差 ≈ e^(2L/H) − 1 层层累积</td>
+            </tr>
+            <tr>
+              <td>对数域（深度渐近）</td>
+              <td>ln s ≈ N(μ, σ²)：μ = −lnD + L(ln2 + ψ(H/2)) − (L−1)lnH<br />
+                σ² = L·ψ′(H/2)；中位数 ≈ e^μ ≈ c·e^(−L/H)</td>
+              <td>均值被重尾撑着不变，中位数指数萎缩（均值/中位数 ≈ e^(L/H)）——
+                深度方向的对数正态涨落，LayerNorm 压掉的正是它</td>
+            </tr>
+            <tr>
+              <td>方案二（quenched）球面二次型</td>
+              <td>E_X[s] = trW/D，Var_X(s) = 2[trW² − (trW)²/D] / (D(D+2))<br />
+                （W = MᵀM，M = 合成链）</td>
+              <td>self-averaging：实例内方差 ≈ annealed 方差的大部分（形状不动）；
+                中心 trW/D 跳动 √(L(L−1+2c))/D 随维度消失（逐层全方差律递推；
+                trW 是平方和的自平均——对照 proj-dot-demo 的 trM 符号和，
+                涨落 √(H/D) 不消失）。L=1 时 s = Σ λ_i g_i² 即对 AᵀA 的 MP 谱随机加权</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          与 dynamical isometry 的联系：随机高斯矩阵的谱宽 ~ 4√c（见 spectrum-demo），
+          不 concentrate 在 1，所以逐层长度涨落不可避免；正交初始化/谱裁剪才能让
+          长度分布在深度上 concentrate。训练后的权重谱脱离 MP 基线，长度的实际行为
+          也随之偏离本页随机基线——这是分析真实权重的对照零模型。
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/theory.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
