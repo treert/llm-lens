@@ -29,6 +29,19 @@
 | 上下文 | max_position_embeddings=1,048,576 |
 | 其他 | 每层有 `self_attention_res_proj/norm`、`mlp_res_proj/norm` 残差分支(attn_res_block_size=12;AttnRes,见下节) |
 
+## 位置编码:NoPE
+
+语言模型**不使用 RoPE**,位置信息完全靠 KDA 层的 short_conv(kernel=4)与注意力因果结构提供:
+
+- `config.json` 中 `mla_use_nope=true`;建模代码 `modeling_kimi_linear.py` 的 MLA 模块
+  `assert self.use_nope` 且 `self.rotary_emb = None`,整个语言模型没有任何 rotary 模块;
+- 注意 `qk_rope_head_dim=64` 的维度**结构上仍然存在**(`q_b_proj` 每头 192 = nope 128 + "rope" 64,
+  `kv_a_proj_with_mqa` 576 = 512 + 64),只是不施加任何旋转,作为普通维度参与打分;
+  其中 K 侧这 64 维由 `kv_a` 直出、96 头共享;
+- 对权重静态分析的含义:attention score 无需剥离位置分量,可直接分解为
+  nope 128 维(经 `kv_b` 升维)+ "rope" 64 维(`kv_a` 直出、全头共享)两块;
+- 视觉塔另有自己的位置编码(`pos_emb_type=divided_fixed`,可学习插值位置嵌入),与语言模型无关。
+
 ## AttnRes(注意力残差)
 
 传统残差 $h_l = h_{l-1} + f_{l-1}(h_{l-1})$ 对所有历史层等权累加,浅层信号被逐层稀释。
