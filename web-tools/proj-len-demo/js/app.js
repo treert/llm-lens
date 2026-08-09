@@ -163,6 +163,7 @@
     chkInst: document.getElementById('chkInst'),
     stats: document.getElementById('stats'),
     statsNote: document.getElementById('statsNote'),
+    staleHint: document.getElementById('staleHint'),
   };
   const chart = echarts.init(document.getElementById('chart'));
 
@@ -284,12 +285,17 @@
     const median = Math.exp(muLn);
     const chainVarV = isMid ? T.midVar(M, varB) : T.abVar(M, D, L);
     const hasExact = isMid || L === 1;
+    const hasSamples = !!samples; // 页面刚打开时无样本：只画理论曲线
 
-    // 横轴范围：对数域理论驱动（μ ± 4σ）并入样本 0.1% / 99.9% 分位
-    const sorted = Float64Array.from(samples).sort();
-    const n = sorted.length;
-    let lo = Math.min(Math.exp(muLn - 4 * Math.sqrt(varLn)), sorted[Math.floor(n * 0.001)]);
-    let hi = Math.max(Math.exp(muLn + 4.5 * Math.sqrt(varLn)), sorted[Math.floor(n * 0.999)]);
+    // 横轴范围：对数域理论驱动（μ ± 4σ）；有样本时再并入 0.1% / 99.9% 分位
+    let lo = Math.exp(muLn - 4 * Math.sqrt(varLn));
+    let hi = Math.exp(muLn + 4.5 * Math.sqrt(varLn));
+    if (hasSamples) {
+      const sorted = Float64Array.from(samples).sort();
+      const n = sorted.length;
+      lo = Math.min(lo, sorted[Math.floor(n * 0.001)]);
+      hi = Math.max(hi, sorted[Math.floor(n * 0.999)]);
+    }
     lo /= scale;
     hi /= scale;
     if (state.scheme === 2 && chain) {
@@ -299,30 +305,32 @@
     if (!state.logX) lo = Math.max(lo, 0);
     lo = Math.max(lo, 1e-12);
 
-    // 直方图（等宽或等比 bin，密度高度）
-    const edges = new Float64Array(N_BINS + 1);
-    for (let b = 0; b <= N_BINS; b++) {
-      edges[b] = state.logX
-        ? lo * Math.pow(hi / lo, b / N_BINS)
-        : lo + ((hi - lo) * b) / N_BINS;
-    }
-    const counts = new Float64Array(N_BINS);
-    for (let i = 0; i < samples.length; i++) {
-      const t = samples[i] / scale;
-      let b;
-      if (state.logX) {
-        b = Math.floor((Math.log(t / lo) / Math.log(hi / lo)) * N_BINS);
-      } else {
-        b = Math.floor(((t - lo) / (hi - lo)) * N_BINS);
-      }
-      if (b >= 0 && b < N_BINS) counts[b]++;
-    }
+    // 直方图（等宽或等比 bin，密度高度）；无样本时为空
     const histPts = [];
-    for (let b = 0; b < N_BINS; b++) {
-      const wBin = edges[b + 1] - edges[b];
-      const h = counts[b] / (samples.length * wBin);
-      const xm = (edges[b] + edges[b + 1]) / 2;
-      histPts.push([xm, h > 0 ? h : null]);
+    if (hasSamples) {
+      const edges = new Float64Array(N_BINS + 1);
+      for (let b = 0; b <= N_BINS; b++) {
+        edges[b] = state.logX
+          ? lo * Math.pow(hi / lo, b / N_BINS)
+          : lo + ((hi - lo) * b) / N_BINS;
+      }
+      const counts = new Float64Array(N_BINS);
+      for (let i = 0; i < samples.length; i++) {
+        const t = samples[i] / scale;
+        let b;
+        if (state.logX) {
+          b = Math.floor((Math.log(t / lo) / Math.log(hi / lo)) * N_BINS);
+        } else {
+          b = Math.floor(((t - lo) / (hi - lo)) * N_BINS);
+        }
+        if (b >= 0 && b < N_BINS) counts[b]++;
+      }
+      for (let b = 0; b < N_BINS; b++) {
+        const wBin = edges[b + 1] - edges[b];
+        const h = counts[b] / (samples.length * wBin);
+        const xm = (edges[b] + edges[b + 1]) / 2;
+        histPts.push([xm, h > 0 ? h : null]);
+      }
     }
 
     // 理论曲线（显示域网格；密度变量替换 p_t(t) = scale·f(scale·t)）
@@ -437,14 +445,14 @@
       series: series,
     }, true);
 
-    renderStats(sampleStats(samples), chain, c, chainVarV, muLn, varLn, median);
+    renderStats(hasSamples ? sampleStats(samples) : null, chain, c, chainVarV, muLn, varLn, median);
   }
 
   function renderStats(ss, chain, c, chainVarV, muLn, varLn, median) {
     const M = state.M, D = state.D, L = state.L;
     const isMid = state.obs === 'mid';
     const hasExact = isMid || L === 1;
-    const cols = ['样本（N = ' + state.nSamples + '）',
+    const cols = ['样本（' + (ss ? 'N = ' + state.nSamples : '未采样') + '）',
       hasExact ? '理论（精确）' : '对数正态近似',
       state.scheme === 2 ? '实例（本批链）' : '高斯近似'];
     const gaussSd = Math.sqrt(chainVarV);
@@ -461,18 +469,19 @@
     const meanNote = isMid
       ? (state.midVarMode === 'm' ? '（= M·(1/M) = 1）' : '（= M/D，配对下投 1/D）')
       : '（恒 1，配对 fan-in）';
+    const S = function (f) { return ss ? f(ss) : '—'; }; // 未采样时样本列显示占位
     const rows = [];
-    rows.push(['均值', fmtAuto(ss.mean), fmtAuto(c) + meanNote,
+    rows.push(['均值', S(function (v) { return fmtAuto(v.mean); }), fmtAuto(c) + meanNote,
       state.scheme === 2 ? fmtAuto(instMean) + '（= trW/D）' : fmtAuto(c)]);
-    rows.push(['标准差', fmtAuto(ss.sd), fmtAuto(gaussSd) + '（' + varFormula + '）',
+    rows.push(['标准差', S(function (v) { return fmtAuto(v.sd); }), fmtAuto(gaussSd) + '（' + varFormula + '）',
       state.scheme === 2 ? fmtAuto(instSd) + '（≈ annealed，self-average）' : fmtAuto(gaussSd)]);
-    rows.push(['中位数', fmtAuto(ss.median), fmtAuto(median) + '（≈ ' + medApprox + '）',
+    rows.push(['中位数', S(function (v) { return fmtAuto(v.median); }), fmtAuto(median) + '（≈ ' + medApprox + '）',
       state.scheme === 2 ? '—' : fmtAuto(c)]);
-    rows.push(['均值 / 中位数', fmt(ss.mean / ss.median, 3),
+    rows.push(['均值 / 中位数', S(function (v) { return fmt(v.mean / v.median, 3); }),
       fmt(c / median, 3) + (isMid ? '（≈ e^(1/M)）' : '（≈ e^(L(1/M+1/D))）'),
       state.scheme === 2 ? '≈ 1（已 concentrate）' : '1']);
-    rows.push(['E[ln s]', fmt(ss.logMean, 4), fmt(muLn, 4), '—']);
-    rows.push(['std(ln s)', fmt(ss.logSd, 4), fmt(Math.sqrt(varLn), 4) +
+    rows.push(['E[ln s]', S(function (v) { return fmt(v.logMean, 4); }), fmt(muLn, 4), '—']);
+    rows.push(['std(ln s)', S(function (v) { return fmt(v.logSd, 4); }), fmt(Math.sqrt(varLn), 4) +
       (isMid ? '（= √(ψ′(M/2))）' : '（= √(L[ψ′(M/2)+ψ′(D/2)])）'), '—']);
     if (state.scheme === 2 && chain) {
       rows.push(['trW / D（实例中心）', '—', fmtAuto(c) + '（系综均值）', fmtAuto(instMean)]);
@@ -529,22 +538,40 @@
   }
 
   // ---------- 调度 ----------
+  // 采样是手动的：改任何重采样控件（方案/观测/方差/L/M/D/样本数/种子）只标脏 +
+  // 刷新显示（直方图沿用已缓存样本，理论曲线即时跟随新参数），不重采样；
+  // 打开页面也不采样（只画理论曲线）；只有点"运行采样"按钮才真正重采样。
   let pending = false;
   function schedule() {
-    const key = samplingKey();
-    if (key === cache.samplesKey && cache.samples) {
-      render(cache.samples, cache.chain);
-      return;
-    }
+    render(cache.samples, cache.chain); // samples 为 null 时只画理论曲线
+    updateStaleHint();
+  }
+  function runNow() {
     if (pending) return;
     pending = true;
     runSampling(function (samples, chain) {
       cache.samplesKey = samplingKey();
       cache.samples = samples;
       pending = false;
-      if (samplingKey() !== cache.samplesKey) schedule();
-      else render(cache.samples, cache.chain);
+      if (samplingKey() !== cache.samplesKey) {
+        // 采样期间参数又变了：直接标脏，等下一次手动点按钮
+        if (cache.samples) render(cache.samples, cache.chain);
+        updateStaleHint();
+      } else {
+        render(cache.samples, cache.chain);
+        updateStaleHint();
+      }
     });
+  }
+  /** 无样本提示"尚未采样"；有样本但参数已改时提示"参数已修改" */
+  function updateStaleHint() {
+    if (!cache.samples) {
+      els.staleHint.textContent = '尚未采样，点"运行采样"生成蒙特卡洛直方图';
+    } else if (samplingKey() !== cache.samplesKey) {
+      els.staleHint.textContent = '参数已修改，点"运行采样"生效（当前直方图仍是旧样本）';
+    } else {
+      els.staleHint.textContent = '';
+    }
   }
 
   // ---------- 事件 ----------
@@ -636,11 +663,11 @@
   els.btnSeed.addEventListener('click', function () {
     state.seed += 1;
     els.inputSeed.value = state.seed;
-    schedule();
+    schedule(); // 只改种子，标脏等手动采样
   });
   els.btnResample.addEventListener('click', function () {
     state.nonce += 1; // 矩阵链不动，只换采样流
-    schedule();
+    runNow(); // 手动触发采样
   });
   els.radioNorm.addEventListener('change', function () {
     state.normAxis = true; schedule();
@@ -683,4 +710,7 @@
   els.inputSeed.value = state.seed;
   setObs('chain');
   setScheme(1);
+  // 打开页面不采样：只画理论曲线，提示点"运行采样"
+  render(null, null);
+  updateStaleHint();
 })();

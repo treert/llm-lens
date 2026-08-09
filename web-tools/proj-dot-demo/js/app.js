@@ -185,6 +185,7 @@
     radioRaw: document.getElementById('radioRaw'),
     stats: document.getElementById('stats'),
     statsNote: document.getElementById('statsNote'),
+    staleHint: document.getElementById('staleHint'),
   };
   const chart = echarts.init(document.getElementById('chart'));
 
@@ -306,6 +307,7 @@
     const scale = state.normAxis ? sig0 : 1;
     const isFixed = state.scheme !== 1;
     const inst = isFixed && mats && mats.stats ? mats.stats : null;
+    const hasSamples = !!samples; // 打开页面时无样本：只画理论曲线
 
     // 理论矩（原始 s 域）
     const vgVar = T.vgVariance(H, beta);
@@ -314,27 +316,33 @@
       instMean = T.scheme2Mean(state.rho, inst.trM, D);
       instVar = T.scheme2Var(state.rho, inst.normF2, inst.normMs2, D);
     }
-    const ss = sampleStats(samples);
+    const ss = hasSamples ? sampleStats(samples) : null;
 
     // 显示域范围：±xMax；σ 取 VG 与实例的较大者；样本极值截到 9σ 防重尾拉爆
     const sdShow = Math.max(Math.sqrt(vgVar), Math.sqrt(instVar)) / scale;
     let xMax = 5 * sdShow;
-    for (let i = 0; i < samples.length; i++) {
-      const a = Math.abs(samples[i]) / scale;
-      if (a > xMax) xMax = Math.min(a, 9 * sdShow);
+    if (hasSamples) {
+      for (let i = 0; i < samples.length; i++) {
+        const a = Math.abs(samples[i]) / scale;
+        if (a > xMax) xMax = Math.min(a, 9 * sdShow);
+      }
     }
     const w = (2 * xMax) / N_BINS;
 
-    // 直方图（显示域等宽 bin，密度高度；step line 填充）
-    const counts = new Float64Array(N_BINS);
-    for (let i = 0; i < samples.length; i++) {
-      const t = samples[i] / scale;
-      const b = Math.floor((t + xMax) / w);
-      if (b >= 0 && b < N_BINS) counts[b]++;
-    }
+    // 直方图（显示域等宽 bin，密度高度；step line 填充）；无样本时为空
     const histPts = [[-xMax, 0]];
-    for (let b = 0; b < N_BINS; b++) {
-      histPts.push([-xMax + (b + 0.5) * w, counts[b] / (samples.length * w)]);
+    if (hasSamples) {
+      const counts = new Float64Array(N_BINS);
+      for (let i = 0; i < samples.length; i++) {
+        const t = samples[i] / scale;
+        const b = Math.floor((t + xMax) / w);
+        if (b >= 0 && b < N_BINS) counts[b]++;
+      }
+      for (let b = 0; b < N_BINS; b++) {
+        histPts.push([-xMax + (b + 0.5) * w, counts[b] / (samples.length * w)]);
+      }
+    } else {
+      for (let b = 0; b < N_BINS; b++) histPts.push([-xMax + (b + 0.5) * w, null]);
     }
     histPts.push([xMax, 0]);
 
@@ -414,13 +422,14 @@
   function renderStats(ss, inst, instMean, instVar, vgVar, scale, sdShow) {
     const H = state.H, D = state.D;
     const isFixed = state.scheme !== 1;
-    const cols = ['样本（N = ' + state.nSamples + '）',
+    const cols = ['样本（' + (ss ? 'N = ' + state.nSamples : '未采样') + '）',
       'VG 理论（方案一精确）', isFixed ? '实例高斯（本批矩阵）' : '高斯近似'];
+    const S = function (f) { return ss ? f(ss) : '—'; }; // 未采样时样本列显示占位
     const rows = [];
-    rows.push(['均值', fmtAuto(ss.mean), '0', isFixed ? fmtAuto(instMean) : '0']);
-    rows.push(['标准差', fmtAuto(ss.sd), fmtAuto(Math.sqrt(vgVar)),
+    rows.push(['均值', S(function (v) { return fmtAuto(v.mean); }), '0', isFixed ? fmtAuto(instMean) : '0']);
+    rows.push(['标准差', S(function (v) { return fmtAuto(v.sd); }), fmtAuto(Math.sqrt(vgVar)),
       isFixed ? fmtAuto(Math.sqrt(instVar)) : fmtAuto(Math.sqrt(vgVar))]);
-    rows.push(['超额峰度', fmt(ss.exkurt, 3), fmt(T.vgExcessKurtosis(H), 3) + '（= 6/H）',
+    rows.push(['超额峰度', S(function (v) { return fmt(v.exkurt, 3); }), fmt(T.vgExcessKurtosis(H), 3) + '（= 6/H）',
       isFixed ? '≈ 0（大维高斯化）' : '0']);
     if (inst) {
       rows.push(['tr M', '—', '—', fmtAuto(inst.trM) + '（std ~ √(H/D) = ' +
@@ -454,7 +463,7 @@
     } else if (state.anneal) {
       notes.push('退火平均：' + ANNEAL_K + ' 批随机矩阵各抽一段合并；ρ = 0 时与方案一严格同一分布，' +
         'ρ ≠ 0 时各批均值偏移 ρ·trM/D 随机变号、平均后抵消，直方图仍回落到 VG 曲线');
-    } else {
+    } else if (inst) {
       notes.push('种子 ' + state.seed + '：trM = ' + fmtAuto(inst.trM) +
         '，均值偏移 ρ·trM/D = ' + fmtAuto(instMean) + '（≈ ' +
         fmt(Math.abs(instMean) / Math.sqrt(instVar), 2) + 'σ）；换一批矩阵可看到偏移方向随机翻转');
@@ -463,19 +472,24 @@
           '）：trM ≈ αH = ' + fmt(state.alpha * H, 1) +
           ' 是确定性信号，ρ 效应随 α 稳定显现——对应 QK 学出结构之后');
       }
+    } else {
+      notes.push('尚未生成本批矩阵（点"运行采样"后显示实例统计）');
     }
     els.statsNote.textContent = notes.join('；');
   }
 
   // ---------- 调度 ----------
+  // 采样是手动的：打开页面不采样（只画理论曲线）；改方案/H/D/样本数/种子/退火/显式
+  // 只标脏并刷新显示（直方图沿用已缓存样本，理论曲线即时跟随），不重采样；
+  // 只有点"运行采样"才真正重采样。ρ 在方案一/三里不进 samplingKey（不换样本），
+  // 方案二里 ρ 只改实例均值标注——都只需重渲染，故 ρ 保持即时刷新。
   let pending = false;
   function schedule() {
-    const key = samplingKey();
-    if (key === cache.samplesKey && cache.samples) {
-      render(cache.samples, cache.mats);
-      return;
-    }
-    if (pending) return; // 上一次采样进行中；结束后由 onDone 再触发
+    render(cache.samples, cache.mats); // samples 为 null 时只画理论曲线
+    updateStaleHint();
+  }
+  function runNow() {
+    if (pending) return; // 上一次采样进行中
     pending = true;
     runSampling(function (samples, mats) {
       cache.samplesKey = samplingKey();
@@ -483,11 +497,24 @@
       cache.mats = state.scheme === 1 || state.anneal ? cache.mats : mats;
       pending = false;
       if (samplingKey() !== cache.samplesKey) {
-        schedule(); // 采样期间参数又变了，重跑
+        // 采样期间参数又变了：标脏，等下一次手动点按钮
+        render(cache.samples, cache.mats);
+        updateStaleHint();
       } else {
         render(cache.samples, cache.mats);
+        updateStaleHint();
       }
     });
+  }
+  /** 无样本提示"尚未采样"；有样本但参数已改时提示"参数已修改" */
+  function updateStaleHint() {
+    if (!cache.samples) {
+      els.staleHint.textContent = '尚未采样，点"运行采样"生成蒙特卡洛直方图';
+    } else if (samplingKey() !== cache.samplesKey) {
+      els.staleHint.textContent = '参数已修改，点"运行采样"生效（当前直方图仍是旧样本）';
+    } else {
+      els.staleHint.textContent = '';
+    }
   }
 
   // ---------- 事件 ----------
@@ -579,7 +606,7 @@
   els.btnResample.addEventListener('click', function () {
     // 矩阵种子不动（同一批矩阵），只换采样流：nonce 进入 samplingKey 与采样种子
     state.nonce += 1;
-    schedule();
+    runNow(); // 手动触发采样
   });
   els.chkAnneal.addEventListener('change', function () {
     state.anneal = els.chkAnneal.checked;
@@ -622,4 +649,7 @@
   els.inputAlpha.value = fmt(state.alpha, 2);
   els.inputSeed.value = state.seed;
   setScheme(1);
+  // 打开页面不采样：只画理论曲线，提示点"运行采样"
+  render(null, null);
+  updateStaleHint();
 })();
