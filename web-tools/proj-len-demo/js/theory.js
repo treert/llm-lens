@@ -1,31 +1,37 @@
 /**
- * 随机投影链长度平方 s = ‖B_{L−1}···B_1 A X‖² 的理论密度（纯数学层，无 DOM 依赖）。
+ * 瓶颈投影链 y = (AB)^L x 长度平方 s = ‖y‖² 的理论密度（纯数学层，无 DOM 依赖）。
  *
- * 设定：A 为 H×D 高斯矩阵（元素方差 1/D，初始化缩放），B_l 为 H×H 高斯矩阵
- * （元素方差 1/H，fan-in），X ∈ R^D 为单位向量，L = 矩阵总数（L=1 即只有 A）。
+ * 设定：x ∈ R^D 为单位向量，B 为 M×D 高斯矩阵（元素方差 1/D），A 为 D×M 高斯
+ * 矩阵（元素方差 1/M）。方差配对（fan-in 1/D 下投、1/M 上投）使单块保长度：
+ * E‖ABx‖² = ‖x‖²。M ∈ [1, 4D]（瓶颈维，可小于也可大于 D）。
  *
- * 方案一（固定 X，随机矩阵）——卡方因子化（精确）：
- *   条件于上一层输出 Y，下一层 ‖BY‖² = (‖Y‖²/H)·χ²_H，卡方与 ‖Y‖² 独立，递推得
- *     s_L = (1/D)·χ²_H · ∏_{l=1..L−1} (χ²_H / H)     （L 个独立卡方因子）
- *   - 均值 H/D = c（任意 L 不变：fan-in 每层保持 E‖·‖²）
- *   - 相对方差 (1+2/H)^L − 1（层层累积）
- *   - L=1：伽马密度（χ²_H/D）；L=2：独立伽马乘积 = Bessel-K₀ 闭式；
- *     L≥3：无初等闭式（Meijer G），对数域渐近：
- *     ln s ≈ N(μ_ln, σ²_ln)，μ_ln = −lnD + L(ln2 + ψ(H/2)) − (L−1)lnH，σ²_ln = L·ψ′(H/2)
- *   - 均值被重尾撑着不变，中位数 ≈ exp(μ_ln) ≈ c·e^{−L/H} 指数萎缩——
- *     “均值-中位数分裂”，LayerNorm 存在意义的随机矩阵视角。
+ * 方案一（固定 x，随机矩阵）——卡方因子化（精确）：
+ *   中间层 z = Bx：‖z‖² = varB·χ²_M ~ Gamma(M/2, 2·varB)，均值 M·varB
+ *   （B 的元素方差 varB 可选 1/D——配对下投、均值 M/D，或 1/M——均值归一 = 1）。
+ *   单块 y = Az：条件于 z，‖Az‖² = (‖z‖²/M)·χ²_D，卡方与 ‖z‖² 独立，递推得
+ *     s_L = ‖(AB)^L x‖² = ∏_{l=1..L} [χ²_M · χ²_D / (DM)]      （2L 个独立卡方因子）
+ *   - 均值恒 1（任意 M、L：长度期望保值）
+ *   - 方差 [(1+2/M)(1+2/D)]^L − 1（相对方差层层累积）
+ *   - L=1：两个不同形状伽马的乘积 = 广义 Bessel-K_ν 闭式（ν = (M−D)/2）：
+ *       f(s) = 2 s^{k̄−1} K_{k1−k2}(2√(s/(θ1θ2))) / [Γ(k1)Γ(k2)(θ1θ2)^{k̄}]
+ *       k1 = M/2, θ1 = 2/D, k2 = D/2, θ2 = 2/M, k̄ = (k1+k2)/2
+ *   - L≥2：无初等闭式，对数域渐近：
+ *       ln s ≈ N(μ, σ²)，μ = L[ψ(M/2)−ln(M/2) + ψ(D/2)−ln(D/2)] ≈ −L(1/M+1/D)，
+ *       σ² = L[ψ′(M/2)+ψ′(D/2)]
+ *   - 均值被重尾撑着恒为 1，中位数 ≈ e^μ ≈ e^{−L(1/M+1/D)} 指数萎缩——
+ *     "均值-中位数分裂"，LayerNorm 存在意义的随机矩阵视角（瓶颈版）。
  *
- * 方案二（固定矩阵链，随机 X 球面均匀，quenched）：
- *   s = X^T W X，W = MᵀM（M = 合成链 H×D）。球面二次型精确矩：
- *     E_X[s] = trW/D，Var_X(s) = 2[tr(W²) − (trW)²/D] / (D(D+2))
- *   self-averaging：实例内方差 ≈ annealed 方差的大部分（球面约束下谱加权的
- *   (1+c) 修正被 −(trW)²/D 项抵消），换一批矩阵直方图形状不动、仅中心平移；
- *   实例中心 trW/D 的跳动（逐层全方差律递推 + 自由概率二阶矩 m₂ = L+c）
- *     Var(trW/D) = L(L−1+2c)/D²   （L=1 即 2H/D³；大 H 渐近，MC 已验证）
- *   随维度消失（trW 是平方和——对照点积问题的 trM 是符号和、涨落 √(H/D)
- *   不消失，见 proj-dot-demo）。
+ * 方案二（固定矩阵，随机 x 球面均匀，quenched）：
+ *   s = xᵀWx，W = PᵀP（P = 合成链）。球面二次型精确矩：
+ *     E_x[s] = trW/D，Var_x(s) = 2[tr(W²) − (trW)²/D] / (D(D+2))
+ *   合成用结合律 (AB)^L = A(BA)^{L−1}B：BA 仅 M×M，避免 O(LD³)。
+ *   self-averaging：实例内方差 ≈ annealed 方差的大部分，换一批矩阵直方图形状
+ *   不动、仅中心平移。实例中心 trW/D 的跳动（Wick 全方差律）：
+ *     中间层（P=B）：Var(trW/D) = 2M·varB²/D（varB = 1/D 时即 2M/D³）
+ *     单块 AB（L=1）：Var(trW/D) = (2M+4D+2)/(MD²)      （M=D 时 ≈ 6/D²）
+ *   随维度消失（trW 是平方和的自平均）；L≥2 无简单闭式，量级 O(L²/D²)。
  *
- * 参考：docs/qk-spectrum.md、web-tools/spectrum-demo（谱）、proj-dot-demo（点积）的姊妹篇。
+ * 参考：docs/qk-spectrum.md、web-tools/spectrum-demo（谱）、proj-dot-demo（点积）。
  */
 (function (global) {
   'use strict';
@@ -69,7 +75,7 @@
     return acc + iz * (1 + iz * (0.5 + iz * (1 / 6 - iz2 * (1 / 30 - iz2 / 42))));
   }
 
-  // ---------- 零阶/一阶 Bessel I、K（Numerical Recipes 系数，与 proj-dot-demo 同源） ----------
+  // ---------- 零阶/一阶 Bessel K（Numerical Recipes 系数；整数阶对照用） ----------
 
   function bessi0(x) {
     var ax = Math.abs(x);
@@ -126,58 +132,131 @@
       y2 * (-0.00068245)))))));
   }
 
-  // ---------- L=1：伽马密度（χ²_H/D = Gamma(k = H/2, scale θ = 2/D)） ----------
+  // ---------- 任意阶 Bessel K_ν（log 域；积分表示 + 正向递推） ----------
+  // K_ν(x) = ∫₀^∞ e^{−x cosh t} cosh(νt) dt（DLMF 10.32.6），ν ≥ 0。
+  // 起始阶 μ ∈ [0,1) 的 K_μ、K_{μ+1} 用被积函数的 log-sum-exp 梯形积分；
+  // 之后正向递推 K_{ν+1} = K_{ν−1} + (2ν/x)K_ν（DLMF 10.29.1，两项同号，
+  // log 域 logaddexp 无条件稳定，且 K_ν 大 ν 时的巨量量级全程不溢出）。
+
+  function logAddExp(a, b) {
+    if (a === -Infinity) return b;
+    if (b === -Infinity) return a;
+    var m = Math.max(a, b);
+    return m + Math.log(Math.exp(a - m) + Math.exp(b - m));
+  }
+
+  /** log K_ν(x)，ν ∈ [0, 1]，x > 0：g(t) = −x cosh t + log cosh(νt) 的梯形积分 */
+  function logBessKnuBase(x, nu) {
+    var h = 0.1 / Math.max(1, Math.sqrt(x)); // 峰宽 ~max(1, 1/√x)，约 10 点/宽度
+    var gmax = -Infinity;
+    var vals = [];
+    for (var t = 0; ; t += h) {
+      var g = -x * Math.cosh(t) + (nu > 0 ? Math.log(Math.cosh(nu * t)) : 0);
+      vals.push(g);
+      if (g > gmax) gmax = g;
+      if (t > 0 && g < gmax - 42 && vals.length > 8) break; // 尾部贡献 < e^{−42}
+      if (vals.length > 50000) break; // 保险
+    }
+    var acc = 0, n = vals.length;
+    for (var i = 0; i < n; i++) {
+      var w = (i === 0 || i === n - 1) ? 0.5 : 1;
+      acc += w * Math.exp(vals[i] - gmax);
+    }
+    return gmax + Math.log(h * acc);
+  }
+
+  /** log K_ν(x)，任意 ν ≥ 0，x > 0 */
+  function logBessKnu(x, nu) {
+    var n = Math.floor(nu);
+    var mu = nu - n;
+    var logKm = logBessKnuBase(x, mu);      // log K_μ
+    if (n === 0) return logKm;
+    var logK1 = logBessKnuBase(x, mu + 1);  // log K_{μ+1}
+    for (var j = 1; j < n; j++) {
+      // K_{μ+j+1} = K_{μ+j−1} + 2(μ+j)/x · K_{μ+j}
+      var t = logAddExp(logKm, Math.log(2 * (mu + j) / x) + logK1);
+      logKm = logK1;
+      logK1 = t;
+    }
+    return logK1;
+  }
+
+  // ---------- 伽马密度（中间层 z=Bx：χ²_M/D = Gamma(k = M/2, scale θ = 2/D)） ----------
 
   function gammaDensity(s, k, theta) {
     if (s <= 0) {
-      if (k < 1) return Infinity;  // H = 1：s^(−1/2) 发散
-      if (k === 1) return 1 / theta; // H = 2：指数分布
+      if (k < 1) return Infinity;  // M = 1：s^(−1/2) 发散
+      if (k === 1) return 1 / theta; // M = 2：指数分布
       return 0;
     }
     return Math.exp((k - 1) * Math.log(s) - s / theta - logGamma(k) - k * Math.log(theta));
   }
 
-  // ---------- L=2：独立伽马乘积密度（Bessel-K₀ 闭式） ----------
-  // P = G1·G2，Gi ~ Gamma(k, θi)：
-  //   f(s) = 2 s^(k−1) K₀(2√(s/(θ1θ2))) / [Γ(k)² (θ1θ2)^k]
-  // s→0 时 K₀ 对数发散（k=1 即 H=2 时 f 本身对数发散；k≥2 时 s^(k−1) 压回 0）。
+  // ---------- 单块 AB：两个不同形状伽马的乘积密度（广义 Bessel-K_ν 闭式） ----------
+  // P = G1·G2，G1 ~ Gamma(k1, θ1)（来自 χ²_M/D），G2 ~ Gamma(k2, θ2)（来自 χ²_D/M）：
+  //   f(s) = 2 s^{k̄−1} K_{k1−k2}(2√(s/(θ1θ2))) / [Γ(k1)Γ(k2)(θ1θ2)^{k̄}]，k̄ = (k1+k2)/2
+  // k1 = k2 时退化为等形状乘积的 K₀ 公式。s→0 时 f ~ s^{min(k1,k2)−1}（K_ν = K_{−ν}）。
 
-  function prodGammaDensity(s, k, theta1, theta2) {
-    if (s <= 0) return k === 1 ? Infinity : 0;
+  function prodGammaDensityAB(s, k1, theta1, k2, theta2) {
+    if (s <= 0) {
+      var kmin = Math.min(k1, k2);
+      if (kmin < 1) return Infinity;          // min(M,D) = 1：s^{kmin−1} 发散
+      if (kmin === 1 && k1 === k2) return Infinity; // M = D = 2：K₀ 对数发散
+      return 0;
+    }
+    var nu = Math.abs(k1 - k2);
     var z = 2 * Math.sqrt(s / (theta1 * theta2));
-    if (z > 600) return 0; // K₀(z) ~ e^(−z) 早已数值为 0
-    var logK0 = Math.log(bessk0(z));
-    return Math.exp(LN2 + (k - 1) * Math.log(s) - 2 * logGamma(k) -
-      k * Math.log(theta1 * theta2) + logK0);
+    var ka = (k1 + k2) / 2;
+    var logF = LN2 + (ka - 1) * Math.log(s) - logGamma(k1) - logGamma(k2) -
+      ka * Math.log(theta1 * theta2) + logBessKnu(z, nu);
+    return Math.exp(logF);
   }
 
-  // ---------- L 层链的矩与对数域参数 ----------
+  // ---------- 链的矩与对数域参数 ----------
 
-  /** 均值 = H/D = c（任意 L 不变） */
-  function chainMean(H, D) { return H / D; }
+  /** 完整链均值 = 1（任意 M、L：配对 fan-in 保长度） */
+  function abMean() { return 1; }
 
-  /** 方差 = c²[(1+2/H)^L − 1]（相对方差 (1+2/H)^L − 1 ≈ e^(2L/H) − 1） */
-  function chainVar(H, D, L) {
-    const c = H / D;
-    return c * c * (Math.pow(1 + 2 / H, L) - 1);
+  /** 完整链方差 = [(1+2/M)(1+2/D)]^L − 1 */
+  function abVar(M, D, L) {
+    return Math.pow((1 + 2 / M) * (1 + 2 / D), L) - 1;
   }
 
-  /** E[ln s] = −lnD + L(ln2 + ψ(H/2)) − (L−1)lnH */
-  function chainLogMean(H, D, L) {
-    return -Math.log(D) + L * (LN2 + digamma(H / 2)) - (L - 1) * Math.log(H);
+  /** 完整链 E[ln s] = L[ψ(M/2)−ln(M/2) + ψ(D/2)−ln(D/2)] ≈ −L(1/M+1/D) */
+  function abLogMean(M, D, L) {
+    return L * (digamma(M / 2) - Math.log(M / 2) + digamma(D / 2) - Math.log(D / 2));
   }
 
-  /** Var(ln s) = L·ψ′(H/2) */
-  function chainLogVar(H, L) {
-    return L * trigamma(H / 2);
+  /** 完整链 Var(ln s) = L[ψ′(M/2) + ψ′(D/2)] */
+  function abLogVar(M, D, L) {
+    return L * (trigamma(M / 2) + trigamma(D / 2));
   }
 
-  /** 中位数 ≈ exp(E[ln s])（对数正态近似；L=1 时即 χ² 中位数的 Wilson-Hilferty 级别近似） */
-  function chainMedianApprox(H, D, L) {
-    return Math.exp(chainLogMean(H, D, L));
+  /** 完整链中位数 ≈ exp(E[ln s]) ≈ e^{−L(1/M+1/D)} */
+  function abMedianApprox(M, D, L) {
+    return Math.exp(abLogMean(M, D, L));
   }
 
-  /** 对数正态密度（L ≥ 3 的近似曲线；L ≤ 2 也可叠加对照） */
+  // 中间层 z = Bx：s = varB·χ²_M ~ Gamma(M/2, 2·varB)，varB 为 B 的元素方差。
+  // varB = 1/D（配对下投，均值 M/D）；varB = 1/M（均值归一 = 1）。
+
+  /** 中间层均值 = M·varB */
+  function midMean(M, varB) { return M * varB; }
+
+  /** 中间层方差 = 2M·varB² */
+  function midVar(M, varB) { return 2 * M * varB * varB; }
+
+  /** 中间层 E[ln s] = ln2 + ψ(M/2) + ln varB */
+  function midLogMean(M, varB) {
+    return LN2 + digamma(M / 2) + Math.log(varB);
+  }
+
+  /** 中间层 Var(ln s) = ψ′(M/2) */
+  function midLogVar(M) {
+    return trigamma(M / 2);
+  }
+
+  /** 对数正态密度（L ≥ 2 完整链的近似曲线；其余情形也可叠加对照） */
   function lognormalDensity(s, mu, var0) {
     if (s <= 0) return 0;
     var d = Math.log(s) - mu;
@@ -189,14 +268,47 @@
     return Math.exp(-d * d / (2 * var0)) / Math.sqrt(2 * Math.PI * var0);
   }
 
-  // ---------- 方案二（quenched）：固定链 M，X 球面均匀的精确矩 ----------
+  // ---------- 方案二（quenched）：固定链 P，x 球面均匀的精确矩 ----------
 
-  /** E_X[s] = trW/D（W = MᵀM；trW = ‖M‖²_F） */
+  /** E_x[s] = trW/D（W = PᵀP；trW = ‖P‖²_F） */
   function quenchMean(trW, D) { return trW / D; }
 
-  /** Var_X(s) = 2[tr(W²) − (trW)²/D] / (D(D+2))（球面二次型精确公式） */
+  /** Var_x(s) = 2[tr(W²) − (trW)²/D] / (D(D+2))（球面二次型精确公式） */
   function quenchVar(trW, trW2, D) {
     return 2 * (trW2 - (trW * trW) / D) / (D * (D + 2));
+  }
+
+  /** 中间层实例中心跳动：trW = ‖B‖²_F = varB·χ²_{MD} 精确 ⇒ Var(trW/D) = 2M·varB²/D */
+  function quenchCenterSdMid(M, D, varB) {
+    return varB * Math.sqrt(2 * M / D);
+  }
+
+  /** 单块 AB 实例中心跳动：Var(trW/D) = (2M+4D+2)/(MD²)（Wick 全方差律；M=D 时 ≈ 6/D²） */
+  function quenchCenterSdAB1(M, D) {
+    return Math.sqrt((2 * M + 4 * D + 2) / (M * D * D));
+  }
+
+  // ---------- 伽马/卡方采样（Marsaglia–Tsang，方案一采样的提速核心） ----------
+  // 逐高斯平方和抽 χ²_M 每层要 O(M)；M 可达 4D = 4096，必须 O(1) 的精确伽马采样。
+
+  /** Gamma(k, 1) 采样，k > 0；rand01 返回 [0,1) 均匀，gauss 返回标准正态 */
+  function gammaSampleMT(k, rand01, gauss) {
+    if (k < 1) { // Gamma(k) = Gamma(k+1)·U^{1/k}
+      return gammaSampleMT(k + 1, rand01, gauss) * Math.pow(rand01(), 1 / k);
+    }
+    var d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
+    for (;;) {
+      var x = gauss();
+      var v = 1 + c * x;
+      if (v <= 0) continue;
+      v = v * v * v;
+      if (Math.log(rand01()) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+    }
+  }
+
+  /** χ²_ν 采样 = 2·Gamma(ν/2, 1) */
+  function chi2Sample(nu, rand01, gauss) {
+    return 2 * gammaSampleMT(nu / 2, rand01, gauss);
   }
 
   global.ProjLenTheory = {
@@ -205,16 +317,25 @@
     trigamma: trigamma,
     bessk0: bessk0,
     bessk1: bessk1,
+    logBessKnu: logBessKnu,
     gammaDensity: gammaDensity,
-    prodGammaDensity: prodGammaDensity,
-    chainMean: chainMean,
-    chainVar: chainVar,
-    chainLogMean: chainLogMean,
-    chainLogVar: chainLogVar,
-    chainMedianApprox: chainMedianApprox,
+    prodGammaDensityAB: prodGammaDensityAB,
+    abMean: abMean,
+    abVar: abVar,
+    abLogMean: abLogMean,
+    abLogVar: abLogVar,
+    abMedianApprox: abMedianApprox,
+    midMean: midMean,
+    midVar: midVar,
+    midLogMean: midLogMean,
+    midLogVar: midLogVar,
     lognormalDensity: lognormalDensity,
     gaussDensity: gaussDensity,
     quenchMean: quenchMean,
     quenchVar: quenchVar,
+    quenchCenterSdMid: quenchCenterSdMid,
+    quenchCenterSdAB1: quenchCenterSdAB1,
+    gammaSampleMT: gammaSampleMT,
+    chi2Sample: chi2Sample,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

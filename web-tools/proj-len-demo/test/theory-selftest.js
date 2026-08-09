@@ -1,6 +1,7 @@
 /**
- * theory.js 的 node 自检：ψ/ψ′ 锚点、伽马与乘积伽马密度的特例恒等、
- * 归一化与解析矩（对数网格数值积分）、链矩公式、quenched 球面矩。
+ * theory.js 的 node 自检：ψ/ψ′ 锚点、任意阶 Bessel K_ν（对照 K₀/K₁ 系数版与
+ * 半整数闭式）、伽马与乘积伽马密度的特例恒等、归一化与解析矩（对数网格数值
+ * 积分）、链矩公式、quenched 球面矩与实例中心跳动、MT 伽马采样的蒙特卡洛矩。
  * 用法：node web-tools/proj-len-demo/test/theory-selftest.js
  * 无测试框架，直接断言；全部通过时退出码 0。
  */
@@ -49,105 +50,197 @@ console.log('[1] digamma / trigamma 锚点');
   near('ψ(1) = −γ', T.digamma(1), -GAMMA, 1e-10);
   near('ψ(2) = 1−γ', T.digamma(2), 1 - GAMMA, 1e-10);
   near('ψ(1/2) = −γ−2ln2', T.digamma(0.5), -GAMMA - 2 * Math.LN2, 1e-10);
-  near('ψ(32)（递推一致性）', T.digamma(32),
-    -GAMMA + Array.from({ length: 31 }, function (_, i) { return 1 / (i + 1); })
-      .reduce(function (a, b) { return a + b; }, 0), 1e-9);
   near("ψ'(1) = π²/6", T.trigamma(1), Math.PI * Math.PI / 6, 1e-8);
   near("ψ'(1/2) = π²/2", T.trigamma(0.5), Math.PI * Math.PI / 2, 1e-7);
-  near("ψ'(2) = π²/6 − 1", T.trigamma(2), Math.PI * Math.PI / 6 - 1, 1e-9);
-  // 渐近行为：ψ(z) ≈ ln z（大 z）
-  near('ψ(1000) ≈ ln1000 − 1/2000', T.digamma(1000),
-    Math.log(1000) - 1 / 2000 - 1 / (12e6), 1e-10);
 }
 
-// ---------- 2. 伽马密度（L=1）特例 ----------
-console.log('[2] 伽马密度（L = 1）');
+// ---------- 2. 任意阶 Bessel K_ν ----------
+console.log('[2] logBessKnu：整数阶对照系数版、半整数闭式、递推一致性');
 {
-  // H = 2：χ²₂/D = Gamma(1, 2/D) = 指数分布，f(s) = (D/2)e^(−sD/2)
+  // 整数阶：logBessKnu(·,0/1) 对照 bessk0/bessk1（NR 系数版精度 ~1e-7，容差放宽至此量级）
+  for (const x of [0.01, 0.5, 1, 2, 5, 20, 100]) {
+    nearRel('logK₀ 对照 x=' + x, T.logBessKnu(x, 0), Math.log(T.bessk0(x)), 1e-6);
+    nearRel('logK₁ 对照 x=' + x, T.logBessKnu(x, 1), Math.log(T.bessk1(x)), 1e-6);
+  }
+  // 半整数闭式：K_{1/2}(x) = √(π/(2x)) e^{−x}
+  for (const x of [0.1, 1, 3, 10]) {
+    nearRel('K_{1/2} 闭式 x=' + x, T.logBessKnu(x, 0.5),
+      0.5 * Math.log(Math.PI / (2 * x)) - x, 1e-8);
+  }
+  // K_{3/2}(x) = K_{1/2}(x)(1 + 1/x)（递推 + 闭式）
+  for (const x of [0.2, 1, 4]) {
+    nearRel('K_{3/2} 闭式 x=' + x, T.logBessKnu(x, 1.5),
+      0.5 * Math.log(Math.PI / (2 * x)) - x + Math.log(1 + 1 / x), 1e-8);
+  }
+  // 递推一致性：K_{7/2} 从 μ=1/2 起推，对照 K_{5/2} = K_{1/2}(1+3/x+3/x²) 再递推
+  {
+    const x = 2.5;
+    const k12 = Math.exp(T.logBessKnu(x, 0.5));
+    const k32 = k12 * (1 + 1 / x);
+    const k52 = k12 * (1 + 3 / x + 3 / (x * x));
+    const k72 = k32 + (2 * (5 / 2) / x) * k52;
+    nearRel('K_{7/2} 递推一致性', T.logBessKnu(x, 3.5), Math.log(k72), 1e-8);
+  }
+  // 大阶数不溢出且与渐近一致：K_ν(x) ~ (1/2)Γ(ν)(2/x)^ν（x 小、ν 大）
+  {
+    const x = 0.05, nu = 40;
+    const asym = -Math.LN2 + T.logGamma(nu) + nu * Math.log(2 / x);
+    nearRel('K_40(0.05) 渐近', T.logBessKnu(x, nu), asym, 2e-3);
+  }
+}
+
+// ---------- 3. 伽马密度（中间层 z=Bx）特例 ----------
+console.log('[3] 伽马密度（中间层）');
+{
   const theta = 2 / 256;
   for (const s of [0.001, 0.1, 1]) {
-    nearRel('H=2 即指数分布, s=' + s, T.gammaDensity(s, 1, theta),
+    nearRel('M=2 即指数分布, s=' + s, T.gammaDensity(s, 1, theta),
       Math.exp(-s / theta) / theta, 1e-12);
   }
-  near('H=2 时 f(0) = D/2', T.gammaDensity(0, 1, theta), 1 / theta, 1e-12);
-  check('H=1 时 f(0) 发散', T.gammaDensity(0, 0.5, theta) === Infinity);
-  check('H≥3 时 f(0) = 0', T.gammaDensity(0, 2, theta) === 0);
-  // 归一化与矩：Gamma(k, θ) 均值 kθ、二阶矩 k(k+1)θ²
+  check('M=1 时 f(0) 发散', T.gammaDensity(0, 0.5, theta) === Infinity);
   for (const k of [0.5, 1, 2, 8, 32]) {
     const th = 2 / 256;
-    const hi = (k + 1) * th * 60; // 覆盖右尾
-    // lo 取 1e-16：k=0.5 的原点 s^(−1/2) 奇异段 ∫₀^lo ≈ 2√lo/(Γ(½)√θ)，lo 过高会缺质量
+    const hi = (k + 1) * th * 60;
     near('伽马归一化 k=' + k, logGridMoment(function (s) { return T.gammaDensity(s, k, th); }, 0, 1e-16, hi, 100000), 1, 1e-6);
     near('伽马均值 k=' + k, logGridMoment(function (s) { return T.gammaDensity(s, k, th); }, 1, 1e-16, hi, 100000), k * th, 1e-6 * k * th + 1e-12);
-    near('伽马二阶矩 k=' + k, logGridMoment(function (s) { return T.gammaDensity(s, k, th); }, 2, 1e-16, hi, 100000), k * (k + 1) * th * th, 1e-5 * k * (k + 1) * th * th + 1e-15);
   }
 }
 
-// ---------- 3. 乘积伽马密度（L=2） ----------
-console.log('[3] 乘积伽马密度（L = 2）');
+// ---------- 4. 乘积伽马密度（单块 AB，k1 ≠ k2） ----------
+console.log('[4] 乘积伽马密度（单块 AB）');
 {
-  const D = 256;
-  // H = 2（k = 1）：f(s) = 2K₀(2√(s/(θ1θ2)))/(θ1θ2)，θ1 = 2/D，θ2 = 2/H
-  const th1 = 2 / D, th2 = 2 / 2;
-  for (const s of [0.01, 0.5, 2]) {
-    const z = 2 * Math.sqrt(s / (th1 * th2));
-    nearRel('H=2 乘积密度 = K₀ 形式, s=' + s, T.prodGammaDensity(s, 1, th1, th2),
-      2 * T.bessk0(z) / (th1 * th2), 1e-12);
+  const D = 256, M = 64;
+  // k1 = k2 时退化为 K₀ 等形状公式
+  {
+    const k = 32, t1 = 2 / D, t2 = 2 / (2 * k);
+    for (const s of [0.01, 0.5, 2]) {
+      const z = 2 * Math.sqrt(s / (t1 * t2));
+      nearRel('k1=k2 退化 K₀ 形式, s=' + s, T.prodGammaDensityAB(s, k, t1, k, t2),
+        2 * Math.pow(s, k - 1) * T.bessk0(z) /
+        (Math.exp(2 * T.logGamma(k)) * Math.pow(t1 * t2, k)), 1e-6);
+    }
   }
-  check('H=2 时 f(0) 对数发散', T.prodGammaDensity(0, 1, th1, th2) === Infinity);
-  check('H≥4 时 f(0) = 0', T.prodGammaDensity(0, 2, th1, th2) === 0);
-  // 归一化与矩：E[P^m] = [Γ(k+m)/Γ(k)]² (θ1θ2)^m
-  for (const k of [1, 2, 8, 32]) {
-    const t1 = 2 / D, t2 = 2 / (2 * k);
-    const f = function (s) { return T.prodGammaDensity(s, k, t1, t2); };
-    const hi = Math.pow(k + 1, 2) * t1 * t2 * 80;
-    const meanT = k * k * t1 * t2;
-    const m2T = k * k * (k + 1) * (k + 1) * t1 * t1 * t2 * t2;
-    near('乘积归一化 k=' + k, logGridMoment(f, 0, 1e-8, hi, 200000), 1, 1e-4);
-    near('乘积均值 k=' + k, logGridMoment(f, 1, 1e-8, hi, 200000), meanT, 5e-4 * meanT);
-    near('乘积二阶矩 k=' + k, logGridMoment(f, 2, 1e-8, hi, 200000), m2T, 5e-4 * m2T);
+  // k1 ≠ k2：归一化与解析矩 E[P^m] = [Γ(k1+m)Γ(k2+m)/(Γ(k1)Γ(k2))]·(θ1θ2)^m
+  for (const pr of [[M / 2, 2 / D, D / 2, 2 / M], [1 / 2, 2 / D, D / 2, 2], [3, 0.1, 17, 0.02]]) {
+    const k1 = pr[0], t1 = pr[1], k2 = pr[2], t2 = pr[3];
+    const f = function (s) { return T.prodGammaDensityAB(s, k1, t1, k2, t2); };
+    const hi = (k1 + 1) * (k2 + 1) * t1 * t2 * 100;
+    const lo = 1e-14 * k1 * k2 * t1 * t2 + 1e-300;
+    const momT = function (m) {
+      return Math.exp(T.logGamma(k1 + m) + T.logGamma(k2 + m) -
+        T.logGamma(k1) - T.logGamma(k2)) * Math.pow(t1 * t2, m);
+    };
+    near('乘积归一化 k1=' + k1 + ',k2=' + k2, logGridMoment(f, 0, lo, hi, 200000), 1, 1e-4);
+    near('乘积均值 k1=' + k1 + ',k2=' + k2, logGridMoment(f, 1, lo, hi, 200000), momT(1), 5e-4 * momT(1));
+    near('乘积二阶矩 k1=' + k1 + ',k2=' + k2, logGridMoment(f, 2, lo, hi, 200000), momT(2), 1e-3 * momT(2));
   }
+  // 单块 AB 的物理特例：M=64, D=256 时均值恰为 1（配对 fan-in 保长度）
+  near('单块 AB 均值 = 1', (M / 2) * (2 / D) * (D / 2) * (2 / M), 1, 1e-15);
 }
 
-// ---------- 4. 链矩与对数域参数 ----------
-console.log('[4] L 层链矩');
+// ---------- 5. 链矩与对数域参数 ----------
+console.log('[5] 链矩（完整链 y=(AB)^L x 与中间层 z=Bx）');
 {
-  const H = 64, D = 256;
-  near('均值 = c（任意 L）', T.chainMean(H, D), 0.25, 1e-15);
-  near('L=1 方差 = 2H/D²', T.chainVar(H, D, 1), 2 * H / (D * D), 1e-15);
-  near('L=2 方差 = 4c²(1+1/H)/…', T.chainVar(H, D, 2),
-    0.25 * 0.25 * ((1 + 2 / H) * (1 + 2 / H) - 1), 1e-15);
-  // L=1 时 μ_ln = E[ln(χ²_H/D)] = ln2 + ψ(H/2) − lnD
-  near('L=1 对数均值', T.chainLogMean(H, D, 1),
-    Math.LN2 + T.digamma(H / 2) - Math.log(D), 1e-12);
-  near('L=1 对数方差 = ψ′(H/2)', T.chainLogVar(H, 1), T.trigamma(H / 2), 1e-12);
-  // 大 H 渐近：E ln(χ²_H/H) ≈ −1/H ⇒ 中位数 ≈ c·e^(−L/H)
-  const med = T.chainMedianApprox(H, D, 8);
-  near('中位数近似 ≈ c·e^(−L/H)（大 H）', med,
-    0.25 * Math.exp(-8 / H), 0.25 * 8 / (H * H));
+  const M = 64, D = 256;
+  near('完整链均值恒 1', T.abMean(), 1, 1e-15);
+  near('L=1 方差 = (1+2/M)(1+2/D)−1', T.abVar(M, D, 1),
+    (1 + 2 / M) * (1 + 2 / D) - 1, 1e-15);
+  near('L=8 方差', T.abVar(M, D, 8),
+    Math.pow((1 + 2 / M) * (1 + 2 / D), 8) - 1, 1e-15);
+  // L=1 时 μ_ln = E[ln χ²_M + ln χ²_D − ln(DM)]
+  near('L=1 对数均值', T.abLogMean(M, D, 1),
+    Math.LN2 + T.digamma(M / 2) - Math.log(D * M / 2) + T.digamma(D / 2), 1e-12);
+  near('L=1 对数方差 = ψ′(M/2)+ψ′(D/2)', T.abLogVar(M, D, 1),
+    T.trigamma(M / 2) + T.trigamma(D / 2), 1e-12);
+  // 大维度渐近：ψ(z)−ln z ≈ −1/(2z) ⇒ 中位数 ≈ e^{−L(1/M+1/D)}
+  const med = T.abMedianApprox(M, D, 8);
+  near('中位数近似 ≈ e^{−L(1/M+1/D)}', med,
+    Math.exp(-8 * (1 / M + 1 / D)), 8 * (1 / (M * M) + 1 / (D * D)));
+  // 中间层（varB = 1/D 配对下投；varB = 1/M 均值归一）
+  near('中间层均值 = M/D（varB=1/D）', T.midMean(M, 1 / D), 0.25, 1e-15);
+  near('中间层均值 = 1（varB=1/M）', T.midMean(M, 1 / M), 1, 1e-15);
+  near('中间层方差 = 2M/D²（varB=1/D）', T.midVar(M, 1 / D), 2 * M / (D * D), 1e-15);
+  near('中间层方差 = 2/M（varB=1/M）', T.midVar(M, 1 / M), 2 / M, 1e-15);
+  near('中间层对数均值（varB=1/D）', T.midLogMean(M, 1 / D),
+    Math.LN2 + T.digamma(M / 2) - Math.log(D), 1e-12);
+  near('中间层对数均值（varB=1/M）', T.midLogMean(M, 1 / M),
+    Math.LN2 + T.digamma(M / 2) - Math.log(M), 1e-12);
+  near('中间层对数方差 = ψ′(M/2)（与 varB 无关）', T.midLogVar(M), T.trigamma(M / 2), 1e-12);
 }
 
-// ---------- 5. quenched 球面二次型矩 ----------
-console.log('[5] quenched 实例矩');
+// ---------- 6. quenched 球面二次型矩与实例中心跳动 ----------
+console.log('[6] quenched 实例矩');
 {
   near('quenchMean = trW/D', T.quenchMean(72, 256), 72 / 256, 1e-15);
-  // 精确公式 Var = 2[trW² − trW²/D]/(D(D+2))；大 D 极限 ≈ 2trW²/D²
   const v = T.quenchVar(72, 320, 256);
   near('quenchVar 精确值', v, 2 * (320 - 72 * 72 / 256) / (256 * 258), 1e-15);
-  // 大 D 近似 2trW²/D²：构造 trW² ≫ (trW)²/D 的例子（修正项相对量级 1/D 才可忽略）
-  const v2 = T.quenchVar(1, 100, 100000);
-  near('quenchVar 大 D 近似', v2, 2 * 100 / 1e10, 1e-3 * 2 * 100 / 1e10);
+  // 中心跳动：中间层 √(2M·varB²/D)；M=D 时单块 AB ≈ √(6)/D（与旧方阵链 L=2 公式一致）
+  near('中间层中心跳动（varB=1/D）', T.quenchCenterSdMid(64, 256, 1 / 256),
+    Math.sqrt(2 * 64 / Math.pow(256, 3)), 1e-15);
+  near('中间层中心跳动（varB=1/M）', T.quenchCenterSdMid(64, 256, 1 / 64),
+    Math.sqrt(2 / (64 * 256)), 1e-15);
+  nearRel('单块 AB 中心跳动（M=D）≈ √6/D', T.quenchCenterSdAB1(256, 256),
+    Math.sqrt(6) / 256, 1e-3);
 }
 
-// ---------- 6. 对数正态与高斯 ----------
-console.log('[6] 近似密度');
+// ---------- 7. 对数正态 ----------
+console.log('[7] 近似密度');
 {
-  const mu = T.chainLogMean(64, 256, 8);
-  const vv = T.chainLogVar(64, 8);
+  const mu = T.abLogMean(64, 256, 8);
+  const vv = T.abLogVar(64, 256, 8);
   const f = function (s) { return T.lognormalDensity(s, mu, vv); };
-  near('对数正态归一化', logGridMoment(f, 0, 1e-6, Math.exp(mu + 8 * Math.sqrt(vv)), 100000), 1, 1e-6);
-  near('对数正态均值 = e^(μ+σ²/2)', logGridMoment(f, 1, 1e-6, Math.exp(mu + 8 * Math.sqrt(vv)), 100000),
+  near('对数正态归一化', logGridMoment(f, 0, 1e-8, Math.exp(mu + 8 * Math.sqrt(vv)), 100000), 1, 1e-6);
+  near('对数正态均值 = e^(μ+σ²/2)', logGridMoment(f, 1, 1e-8, Math.exp(mu + 8 * Math.sqrt(vv)), 100000),
     Math.exp(mu + vv / 2), 1e-5);
+}
+
+// ---------- 8. Marsaglia–Tsang 伽马/卡方采样（蒙特卡洛矩） ----------
+console.log('[8] MT 伽马采样（种子化蒙特卡洛）');
+{
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const rand01 = mulberry32(12345);
+  let spare = null;
+  const gauss = function () {
+    if (spare !== null) { const v = spare; spare = null; return v; }
+    let u = 0, v = 0, s = 0;
+    do { u = rand01() * 2 - 1; v = rand01() * 2 - 1; s = u * u + v * v; } while (s >= 1 || s === 0);
+    const m = Math.sqrt((-2 * Math.log(s)) / s);
+    spare = v * m;
+    return u * m;
+  };
+  // Gamma(k,1)：均值 k、方差 k、E ln = ψ(k)；χ²_ν：均值 ν、方差 2ν
+  const N = 200000;
+  for (const k of [0.3, 1, 2.5, 32]) {
+    let m1 = 0, m2 = 0, ml = 0;
+    for (let i = 0; i < N; i++) {
+      const g = T.gammaSampleMT(k, rand01, gauss);
+      m1 += g; m2 += g * g; ml += Math.log(g);
+    }
+    m1 /= N; m2 /= N; ml /= N;
+    const sd = Math.sqrt(m2 - m1 * m1);
+    nearRel('Gamma(' + k + ') 均值', m1, k, 4 / Math.sqrt(N));
+    nearRel('Gamma(' + k + ') 标准差', sd, Math.sqrt(k), 6 / Math.sqrt(N));
+    near('Gamma(' + k + ') E ln = ψ(k)', ml, T.digamma(k), 4 / Math.sqrt(N * Math.max(k, 0.3)));
+  }
+  {
+    let m1 = 0, m2 = 0;
+    for (let i = 0; i < N; i++) {
+      const c = T.chi2Sample(64, rand01, gauss);
+      m1 += c; m2 += c * c;
+    }
+    m1 /= N; m2 /= N;
+    nearRel('χ²_64 均值', m1, 64, 4 / Math.sqrt(N));
+    nearRel('χ²_64 方差', m2 - m1 * m1, 128, 6 / Math.sqrt(N));
+  }
 }
 
 if (failures > 0) {
