@@ -306,10 +306,12 @@
     const sig0 = Math.sqrt(H) / D; // VG 标准差 √Hβ
     const scale = state.normAxis ? sig0 : 1;
     const isFixed = state.scheme !== 1;
-    const inst = isFixed && mats && mats.stats ? mats.stats : null;
+    // 实例矩阵仅在"与当前参数一致"时才有效（调 α/H/D/种子会标脏矩阵，需重采样再生成）
+    const matsFresh = isFixed && mats && mats.stats && cache.matsKey === matsKey();
+    const inst = matsFresh ? mats.stats : null;
     const hasSamples = !!samples; // 打开页面时无样本：只画理论曲线
 
-    // 理论矩（原始 s 域）
+    // 理论矩（原始 s 域）：VG/高斯不依赖矩阵，始终即时跟随 H、D
     const vgVar = T.vgVariance(H, beta);
     let instMean = 0, instVar = vgVar;
     if (inst) {
@@ -425,12 +427,16 @@
     const cols = ['样本（' + (ss ? 'N = ' + state.nSamples : '未采样') + '）',
       'VG 理论（方案一精确）', isFixed ? '实例高斯（本批矩阵）' : '高斯近似'];
     const S = function (f) { return ss ? f(ss) : '—'; }; // 未采样时样本列显示占位
+    // 实例列：矩阵不新鲜（调过 α/H/D/种子）时提示待更新，不显示旧矩阵的误导值
+    const instStale = isFixed && !inst;
+    const I = function (f) { return instStale ? '待重采样' : f(); };
     const rows = [];
-    rows.push(['均值', S(function (v) { return fmtAuto(v.mean); }), '0', isFixed ? fmtAuto(instMean) : '0']);
+    rows.push(['均值', S(function (v) { return fmtAuto(v.mean); }), '0',
+      isFixed ? I(function () { return fmtAuto(instMean); }) : '0']);
     rows.push(['标准差', S(function (v) { return fmtAuto(v.sd); }), fmtAuto(Math.sqrt(vgVar)),
-      isFixed ? fmtAuto(Math.sqrt(instVar)) : fmtAuto(Math.sqrt(vgVar))]);
+      isFixed ? I(function () { return fmtAuto(Math.sqrt(instVar)); }) : fmtAuto(Math.sqrt(vgVar))]);
     rows.push(['超额峰度', S(function (v) { return fmt(v.exkurt, 3); }), fmt(T.vgExcessKurtosis(H), 3) + '（= 6/H）',
-      isFixed ? '≈ 0（大维高斯化）' : '0']);
+      isFixed ? I(function () { return '≈ 0（大维高斯化）'; }) : '0']);
     if (inst) {
       rows.push(['tr M', '—', '—', fmtAuto(inst.trM) + '（std ~ √(H/D) = ' +
         fmt(Math.sqrt(H / D), 3) + '）']);
@@ -472,6 +478,10 @@
           '）：trM ≈ αH = ' + fmt(state.alpha * H, 1) +
           ' 是确定性信号，ρ 效应随 α 稳定显现——对应 QK 学出结构之后');
       }
+    } else if (cache.samples) {
+      // 已采样过但矩阵被改（α/H/D/种子）：实例曲线已隐藏，等待重采样
+      notes.push('已修改矩阵相关参数（α/H/D/种子），实例高斯曲线待更新——点"运行采样"重新生成相关矩阵 Mb' +
+        (state.scheme === 3 ? '（当前 α = ' + fmt(state.alpha, 2) + '，trM ≈ αH = ' + fmt(state.alpha * H, 1) + '）' : ''));
     } else {
       notes.push('尚未生成本批矩阵（点"运行采样"后显示实例统计）');
     }
