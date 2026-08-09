@@ -176,6 +176,8 @@
     inputSeed: document.getElementById('inputSeed'),
     btnSeed: document.getElementById('btnSeed'),
     btnResample: document.getElementById('btnResample'),
+    btnPause: document.getElementById('btnPause'),
+    btnReset: document.getElementById('btnReset'),
     chkAnneal: document.getElementById('chkAnneal'),
     chkExplicit: document.getElementById('chkExplicit'),
     chkVg: document.getElementById('chkVg'),
@@ -199,11 +201,11 @@
   const ANNEAL_K = 24;
 
   // ---------- 滑杆映射 ----------
-  // H：2^0..2^8 = 1..256；D：2^4..2^10 = 16..1024（对数）
-  function sliderToH(t) { return Math.max(1, Math.round(Math.pow(2, (8 * t) / 1000))); }
-  function hToSlider(h) { return Math.max(0, Math.min(1000, Math.round((Math.log2(h) / 8) * 1000))); }
-  function sliderToD(t) { return Math.max(16, Math.round(Math.pow(2, 4 + (6 * t) / 1000))); }
-  function dToSlider(d) { return Math.max(0, Math.min(1000, Math.round(((Math.log2(d) - 4) / 6) * 1000))); }
+  // H：2^0..2^9 = 1..512；D：2^4..2^13 = 16..8192（对数）
+  function sliderToH(t) { return Math.max(1, Math.round(Math.pow(2, (9 * t) / 1000))); }
+  function hToSlider(h) { return Math.max(0, Math.min(1000, Math.round((Math.log2(h) / 9) * 1000))); }
+  function sliderToD(t) { return Math.max(16, Math.round(Math.pow(2, 4 + (9 * t) / 1000))); }
+  function dToSlider(d) { return Math.max(0, Math.min(1000, Math.round(((Math.log2(d) - 4) / 9) * 1000))); }
   function sliderToRho(t) { return -1 + (2 * t) / 1000; }
   function rhoToSlider(r) { return Math.max(0, Math.min(1000, Math.round(((r + 1) / 2) * 1000))); }
 
@@ -225,7 +227,61 @@
     return [state.scheme, state.H, state.D, state.alpha, state.seed].join('|');
   }
 
-  function runSampling(onDone) {
+  /**
+   * matrixStats 的分片版：H×H Gram 循环按行推进，每行 O(HD)，行与行之间让出主线程。
+   * 避免大 H、D 下 3H²D 同步卡死 UI（H=512、D=8192 时整算 ~60s）。
+   */
+  function matrixStatsAsync(Ma, Mb, H, D, ctrl, onProgress, onDone) {
+    const Ga = new Float64Array(H * H);
+    const Gb = new Float64Array(H * H);
+    const Gx = new Float64Array(H * H);
+    let trM = 0;
+    for (let i = 0; i < H * D; i++) trM += Ma[i] * Mb[i];
+    let k = 0;
+    (function rowStep() {
+      if (ctrl.aborted) return;
+      if (ctrl.paused) { setTimeout(rowStep, 100); return; } // 暂停：原地空转等继续
+      const tStart = performance.now();
+      while (k < H && performance.now() - tStart < 24) {
+        const offK = k * D;
+        for (let l = 0; l < H; l++) {
+          const offL = l * D;
+          let a = 0, b = 0, x = 0;
+          for (let j = 0; j < D; j++) {
+            const ma = Ma[offK + j];
+            const mb = Mb[offK + j];
+            a += ma * Ma[offL + j];
+            b += mb * Mb[offL + j];
+            x += ma * Mb[offL + j];
+          }
+          Ga[k * H + l] = a;
+          Gb[k * H + l] = b;
+          Gx[k * H + l] = x;
+        }
+        k++;
+      }
+      if (k < H) {
+        onProgress(k / H);
+        setTimeout(rowStep, 0);
+      } else {
+        let normF2 = 0, trM2 = 0;
+        for (let i = 0; i < H; i++) {
+          for (let l = 0; l < H; l++) {
+            normF2 += Ga[i * H + l] * Gb[i * H + l];
+            trM2 += Gx[i * H + l] * Gx[l * H + i];
+          }
+        }
+        onDone({ trM: trM, normF2: normF2, trM2: trM2, normMs2: (normF2 + trM2) / 2 });
+      }
+    })();
+  }
+
+  /**
+   * 分片流式采样：固定时间片（~24ms/块，按实测自适应块大小），每块后 setTimeout(0)
+   * 让出主线程，并把已采样本流式回调 onProgress 供增量重绘——大维度下 UI 不卡、
+   * 直方图随采样逐步收敛。
+   */
+  function runSampling(ctrl, onProgress, onDone) {
     const n = state.nSamples, H = state.H, D = state.D;
     const out = new Float64Array(n);
     const sampleGauss = makeGaussian(mulberry32(state.seed * 131 + 7 + state.nonce * 65537));
@@ -237,46 +293,68 @@
     };
     let mats = null;
     let seg = -1;
+    let count = 0; // 已采样本数（流式）
+    let chunk = 64; // 初始块大小，按实测耗时自适应
+
+    function sampleLoop() {
+      els.statsNote.textContent = '采样中 0%…';
+      (function step() {
+        if (ctrl.aborted) return;
+        if (ctrl.paused) { setTimeout(step, 100); return; } // 暂停：原地空转等继续
+        // 自适应块大小：上一块实测耗时 → 收敛到目标时间片
+        const tStart = performance.now();
+        let end = Math.min(n, count + chunk);
+        if (anneal) {
+          const needSeg = Math.floor(count / segLen);
+          if (needSeg !== seg) {
+            seg = needSeg;
+            mats = genMatrices(H, D, state.alpha, state.scheme, state.seed + seg);
+          }
+          end = Math.min(end, (seg + 1) * segLen);
+        }
+        if (state.scheme === 1) {
+          fillScheme1(out, count, end, H, D, state.rho, state.explicit, sampleGauss);
+        } else {
+          fillFixedM(out, count, end, H, D, state.rho, mats.Ma, mats.Mb, sampleGauss, buf);
+        }
+        count = end;
+        const elapsed = performance.now() - tStart;
+        // 目标时间片 ~24ms：实测偏小则加大块、偏大则减小（保留 1 个样本下限）
+        if (elapsed > 0) {
+          const target = Math.max(1, Math.round((chunk * 24) / elapsed));
+          chunk = Math.min(n, Math.max(1, target));
+        }
+        // 流式重绘：用已采的 count 个样本（视图，不拷贝）
+        onProgress(out.subarray(0, count), count / n, mats);
+        if (count < n) setTimeout(step, 0);
+        else onDone(out, mats);
+      })();
+    }
+
     if (state.scheme !== 1 && !anneal) {
       const key = matsKey();
       if (cache.matsKey === key && cache.mats) {
         mats = cache.mats;
+        sampleLoop();
       } else {
+        els.statsNote.textContent = '生成矩阵并计算不变量（分片）…';
         const gen = genMatrices(H, D, state.alpha, state.scheme, state.seed);
-        gen.stats = matrixStats(gen.Ma, gen.Mb, H, D);
-        cache.matsKey = key;
-        cache.mats = gen;
-        mats = gen;
+        matrixStatsAsync(gen.Ma, gen.Mb, H, D, ctrl,
+          function (p) { els.statsNote.textContent = '计算矩阵不变量 ' + Math.round(100 * p) + '%…'; },
+          function (stats) {
+            if (ctrl.aborted) return;
+            gen.stats = stats;
+            cache.matsKey = key;
+            cache.mats = gen;
+            mats = gen;
+            sampleLoop();
+          });
       }
     } else {
       cache.mats = null;
       cache.matsKey = '';
+      sampleLoop();
     }
-    const flopsPerSample = state.scheme === 1 ? 3 * H : 2 * H * D;
-    const chunk = Math.max(200, Math.round(2e7 / flopsPerSample));
-    let i = 0;
-    els.statsNote.textContent = '采样中 0%…';
-    function step() {
-      let end = Math.min(n, i + chunk);
-      if (anneal) {
-        const needSeg = Math.floor(i / segLen);
-        if (needSeg !== seg) {
-          seg = needSeg;
-          mats = genMatrices(H, D, state.alpha, state.scheme, state.seed + seg);
-        }
-        end = Math.min(end, (seg + 1) * segLen);
-      }
-      if (state.scheme === 1) {
-        fillScheme1(out, i, end, H, D, state.rho, state.explicit, sampleGauss);
-      } else {
-        fillFixedM(out, i, end, H, D, state.rho, mats.Ma, mats.Mb, sampleGauss, buf);
-      }
-      i = end;
-      els.statsNote.textContent = '采样中 ' + Math.round((100 * i) / n) + '%…';
-      if (i < n) setTimeout(step, 0);
-      else onDone(out, mats);
-    }
-    step();
   }
 
   // ---------- 样本统计 ----------
@@ -494,30 +572,90 @@
   // 只有点"运行采样"才真正重采样。ρ 在方案一/三里不进 samplingKey（不换样本），
   // 方案二里 ρ 只改实例均值标注——都只需重渲染，故 ρ 保持即时刷新。
   let pending = false;
+  let ctrl = null; // 当前采样的控制对象 {aborted, paused}
+  let progressCount = 0; // 采样中已采样本数（供提示文本显示）
+
   function schedule() {
+    if (pending) {
+      // 采样中改了参数：直接重置——停止并清空，回"尚未采样"，等手动点运行
+      resetSample();
+      return;
+    }
     render(cache.samples, cache.mats); // samples 为 null 时只画理论曲线
     updateStaleHint();
   }
+
+  function setButtons() {
+    els.btnResample.disabled = pending;
+    els.btnPause.disabled = !pending;
+    els.btnPause.textContent = (pending && ctrl && ctrl.paused) ? '继续' : '暂停';
+    els.btnReset.disabled = !pending && !cache.samples;
+    updateStaleHint(); // 按钮态变化后同步提示（采样中显示"采样中…/已暂停"）
+  }
+
   function runNow() {
     if (pending) return; // 上一次采样进行中
     pending = true;
-    runSampling(function (samples, mats) {
-      cache.samplesKey = samplingKey();
-      cache.samples = samples;
-      cache.mats = state.scheme === 1 || state.anneal ? cache.mats : mats;
-      pending = false;
-      if (samplingKey() !== cache.samplesKey) {
-        // 采样期间参数又变了：标脏，等下一次手动点按钮
+    ctrl = { aborted: false, paused: false };
+    progressCount = 0;
+    setButtons();
+    let lastDraw = 0;
+    runSampling(ctrl,
+      // onProgress：流式重绘（限频 ~15fps，避免重绘本身占满主线程）
+      function (partial, frac, mats) {
+        const now = performance.now();
+        if (now - lastDraw < 66 && frac < 1) return;
+        lastDraw = now;
+        progressCount = partial.length;
+        els.statsNote.textContent = '采样中 ' + Math.round(100 * frac) + '%（' +
+          partial.length + ' / ' + state.nSamples + ' 样本）…';
+        els.staleHint.textContent = '采样中 ' + partial.length + ' / ' + state.nSamples + ' 样本…';
+        render(partial, mats);
+      },
+      function (samples, mats) {
+        cache.samplesKey = samplingKey();
+        cache.samples = samples;
+        cache.mats = state.scheme === 1 || state.anneal ? cache.mats : mats;
+        pending = false;
+        ctrl = null;
+        setButtons();
         render(cache.samples, cache.mats);
         updateStaleHint();
-      } else {
-        render(cache.samples, cache.mats);
-        updateStaleHint();
-      }
-    });
+      });
   }
-  /** 无样本提示"尚未采样"；有样本但参数已改时提示"参数已修改" */
+
+  /** 暂停/继续切换 */
+  function togglePause() {
+    if (!pending || !ctrl) return;
+    ctrl.paused = !ctrl.paused;
+    setButtons();
+    if (ctrl.paused) els.statsNote.textContent = '已暂停（点"继续"恢复采样）';
+  }
+
+  /** 重置：中止当前采样（若有）并清空已采样本，回"尚未采样" */
+  function resetSample() {
+    if (ctrl) ctrl.aborted = true; // 让分片循环自然退出
+    pending = false;
+    ctrl = null;
+    progressCount = 0;
+    cache.samples = null;
+    cache.samplesKey = '';
+    cache.mats = null;
+    cache.matsKey = '';
+    setButtons();
+    render(null, null);
+    updateStaleHint();
+  }
+
+  /** 无样本提示"尚未采样"；有样本但参数已改时提示"参数已修改"；采样中不覆盖进度文案 */
   function updateStaleHint() {
+    if (pending) {
+      const cnt = progressCount + ' / ' + state.nSamples + ' 样本';
+      els.staleHint.textContent = (ctrl && ctrl.paused)
+        ? '已暂停（' + cnt + '）'
+        : '采样中 ' + cnt + '…';
+      return;
+    }
     if (!cache.samples) {
       els.staleHint.textContent = '尚未采样，点"运行采样"生成蒙特卡洛直方图';
     } else if (samplingKey() !== cache.samplesKey) {
@@ -544,13 +682,13 @@
   });
 
   function setH(h, fromSlider) {
-    state.H = Math.max(1, Math.min(256, Math.round(h)));
+    state.H = Math.max(1, Math.min(512, Math.round(h)));
     if (!fromSlider) els.sliderH.value = hToSlider(state.H);
     if (document.activeElement !== els.inputH) els.inputH.value = state.H;
     schedule();
   }
   function setD(d, fromSlider) {
-    state.D = Math.max(16, Math.min(1024, Math.round(d)));
+    state.D = Math.max(16, Math.min(8192, Math.round(d)));
     if (!fromSlider) els.sliderD.value = dToSlider(state.D);
     if (document.activeElement !== els.inputD) els.inputD.value = state.D;
     schedule();
@@ -559,7 +697,13 @@
     state.rho = Math.max(-1, Math.min(1, r));
     if (!fromSlider) els.sliderRho.value = rhoToSlider(state.rho);
     if (document.activeElement !== els.inputRho) els.inputRho.value = fmt(state.rho, 2);
-    schedule();
+    // 方案一下 ρ 不进采样（不换样本），采样中调 ρ 不该重置——只重绘；
+    // 方案二/三 ρ 进 samplingKey，走 schedule（采样中会触发重置）
+    if (state.scheme === 1) {
+      if (!pending) render(cache.samples, cache.mats);
+    } else {
+      schedule();
+    }
   }
   function setAlpha(a, fromSlider) {
     state.alpha = Math.max(0, Math.min(1, a));
@@ -618,6 +762,8 @@
     state.nonce += 1;
     runNow(); // 手动触发采样
   });
+  els.btnPause.addEventListener('click', togglePause);
+  els.btnReset.addEventListener('click', resetSample);
   els.chkAnneal.addEventListener('change', function () {
     state.anneal = els.chkAnneal.checked;
     schedule();
@@ -626,25 +772,30 @@
     state.explicit = els.chkExplicit.checked;
     schedule();
   });
+  // 显示参数（曲线勾选、横轴归一）：不重采样、不重置，只重绘当前缓存
+  function refreshView() {
+    if (pending) return; // 采样中由流式回调负责重绘，此处不动
+    render(cache.samples, cache.mats);
+  }
   els.chkVg.addEventListener('change', function () {
     state.showVg = els.chkVg.checked;
-    schedule();
+    refreshView();
   });
   els.chkGauss.addEventListener('change', function () {
     state.showGauss = els.chkGauss.checked;
-    schedule();
+    refreshView();
   });
   els.chkInst.addEventListener('change', function () {
     state.showInst = els.chkInst.checked;
-    schedule();
+    refreshView();
   });
   els.radioNorm.addEventListener('change', function () {
     state.normAxis = true;
-    schedule();
+    refreshView();
   });
   els.radioRaw.addEventListener('change', function () {
     state.normAxis = false;
-    schedule();
+    refreshView();
   });
   window.addEventListener('resize', function () { chart.resize(); });
 
@@ -659,6 +810,7 @@
   els.inputAlpha.value = fmt(state.alpha, 2);
   els.inputSeed.value = state.seed;
   setScheme(1);
+  setButtons();
   // 打开页面不采样：只画理论曲线，提示点"运行采样"
   render(null, null);
   updateStaleHint();

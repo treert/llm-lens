@@ -37,12 +37,12 @@
     <div class="control control-slider">
       <label for="sliderH">H（投影维）</label>
       <input id="sliderH" type="range" min="0" max="1000" value="750" />
-      <input id="inputH" type="number" min="1" max="256" step="1" value="64" />
+      <input id="inputH" type="number" min="1" max="512" step="1" value="64" />
     </div>
     <div class="control control-slider">
       <label for="sliderD">D（输入维）</label>
       <input id="sliderD" type="range" min="0" max="1000" value="667" />
-      <input id="inputD" type="number" min="16" max="1024" step="1" value="256" />
+      <input id="inputD" type="number" min="16" max="8192" step="1" value="256" />
     </div>
     <div class="control control-slider">
       <label for="sliderRho">ρ = cos(A, B)</label>
@@ -73,6 +73,8 @@
     </div>
     <div class="control">
       <button type="button" id="btnResample">运行采样</button>
+      <button type="button" id="btnPause" disabled>暂停</button>
+      <button type="button" id="btnReset" disabled>重置</button>
       <span id="staleHint" class="stale-hint"></span>
     </div>
     <div class="control control-inline">
