@@ -414,6 +414,7 @@
     chkTheory: document.getElementById('chkTheory'),
     chkGauss: document.getElementById('chkGauss'),
     chkInst: document.getElementById('chkInst'),
+    chkInstSkew: document.getElementById('chkInstSkew'),
     stats: document.getElementById('stats'),
     statsNote: document.getElementById('statsNote'),
     staleHint: document.getElementById('staleHint'),
@@ -426,7 +427,7 @@
     alpha: 0, // 矩阵相关：A = α√(D/M)·Bᵀ + √(1−α²)·G（仅方案二完整块；α=0 独立）
     nSamples: 30000, seed: 1, nonce: 0,
     normAxis: true, logX: false, logY: false,
-    showTheory: true, showGauss: false, showInst: true,
+    showTheory: true, showGauss: false, showInst: true, showInstSkew: true,
   };
   const cache = { samplesKey: '', samples: null, chainKey: '', chain: null };
 
@@ -645,7 +646,13 @@
     }
 
     // 理论曲线（显示域网格；密度变量替换 p_t(t) = scale·f(scale·t)）
-    const theoryPts = [], gaussPts = [], instPts = [];
+    const theoryPts = [], gaussPts = [], instPts = [], instSkewPts = [];
+    const hasInst = state.scheme === 2 && chain;
+    // 实例矩（球面二次型精确公式）；实例偏态曲线以精确形状（伽马/K_ν）为基形，
+    // 标准化后仿射变换到实例均值/方差：保留右偏（众数 < 均值），峰位对齐直方图
+    const im = hasInst ? T.quenchMean(chain.trW, D) : 0;
+    const iv = hasInst ? T.quenchVar(chain.trW, chain.trW2, D) : 0;
+    const skewB = hasInst && iv > 0 ? Math.sqrt(iv / chainVarV) : 0;
     const N_PT = 400;
     for (let i = 0; i <= N_PT; i++) {
       const t = state.logX
@@ -659,10 +666,18 @@
         theoryPts.push([t, scale * f]);
       }
       if (state.showGauss) gaussPts.push([t, scale * T.gaussDensity(s, c, chainVarV)]);
-      if (state.showInst && state.scheme === 2 && chain) {
-        const im = T.quenchMean(chain.trW, D);
-        const iv = T.quenchVar(chain.trW, chain.trW2, D);
+      if (state.showInst && hasInst) {
         instPts.push([t, scale * T.gaussDensity(s, im, iv)]);
+      }
+      if (state.showInstSkew && skewB > 0) {
+        const x = c + (s - im) / skewB; // 映回基形（均值 c、方差 chainVarV）的横坐标
+        let f = 0;
+        if (x > 0) {
+          f = (isMid
+            ? T.gammaDensity(x, M / 2, 2 * varB)
+            : T.prodGammaDensityAB(x, M / 2, 2 / D, D / 2, 2 / M)) / skewB;
+        }
+        instSkewPts.push([t, scale * f]);
       }
     }
 
@@ -723,11 +738,20 @@
     }
     if (state.showInst && state.scheme === 2 && chain) {
       series.push({
-        name: '实例高斯（本批链' + (chain.approx ? '，Hutchinson 估计' : '') + '）',
+        name: '实例高斯（两矩近似' + (chain.approx ? '，Hutchinson 估计' : '') + '）',
         type: 'line', showSymbol: false,
-        lineStyle: { width: 2, color: '#dc2626' },
+        lineStyle: { width: 1.5, color: '#dc2626', type: 'dashed' },
         itemStyle: { color: '#dc2626' },
         data: instPts,
+      });
+    }
+    if (state.showInstSkew && state.scheme === 2 && chain) {
+      series.push({
+        name: '实例偏态（' + (isMid ? '伽马' : 'K_ν') + ' 形状×实例矩）',
+        type: 'line', showSymbol: false,
+        lineStyle: { width: 2, color: '#7c3aed' },
+        itemStyle: { color: '#7c3aed' },
+        data: instSkewPts,
       });
     }
 
@@ -979,6 +1003,7 @@
     els.inputSeed.disabled = !fixed;
     els.btnSeed.disabled = !fixed;
     els.chkInst.disabled = !fixed;
+    els.chkInstSkew.disabled = !fixed;
     updateAlphaEnabled();
     schedule();
   }
@@ -1103,6 +1128,9 @@
   });
   els.chkInst.addEventListener('change', function () {
     state.showInst = els.chkInst.checked; refreshView();
+  });
+  els.chkInstSkew.addEventListener('change', function () {
+    state.showInstSkew = els.chkInstSkew.checked; refreshView();
   });
   window.addEventListener('resize', function () { chart.resize(); });
 

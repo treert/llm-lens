@@ -19,7 +19,9 @@
       观测目标可选完整块 y 或中间层 z = Bx（压缩分布，B 方差可选 1/D——均值 M/D，
       或 1/M——均值归一 = 1）。
       <strong class="legend-note note-blue">蓝线：精确理论（中间层伽马 varB·χ²_M / 单块 K_ν 乘积伽马）</strong>；
-      <strong class="legend-note note-red">红线：方案二实例高斯（固定矩阵，随机 x）</strong>；
+      <strong class="legend-note note-red">红虚线：方案二实例高斯（只配前两矩，精度逊）</strong>；
+      <strong class="legend-note note-purple">紫线：实例偏态——精确形状（伽马/K_ν）平移缩放到实例矩，
+      峰位对齐直方图（实例分布右偏，众数 &lt; 均值）</strong>；
       <strong class="legend-note note-teal">青色填充：蒙特卡洛直方图</strong>。
       均值恒 1，但中位数 ≈ e^(−(1/M+1/D))——均值被重尾撑着、典型样本偏小。
       姊妹篇：spectrum-demo（谱）、proj-dot-demo（点积）。
@@ -96,6 +98,7 @@
           <label><input id="chkTheory" type="checkbox" checked /> 精确理论（中间层 / 单块）</label>
           <label><input id="chkGauss" type="checkbox" /> 高斯近似</label>
           <label><input id="chkInst" type="checkbox" checked /> 实例高斯（方案二）</label>
+          <label><input id="chkInstSkew" type="checkbox" checked /> 实例偏态（平移精确形状）</label>
         </span>
         <span class="cc-group">
           横轴：
@@ -158,6 +161,16 @@
                 中心 trW/D 跳动：中间层 √(2M·varB²/D)、完整块 √((2M+4D+2)/(MD²))，随维度消失
                 （trW 是平方和的自平均——对照 proj-dot-demo 的 trM 符号和，
                 涨落 √(H/D) 不消失）</td>
+            </tr>
+            <tr>
+              <td>方案二实例形状（右偏）</td>
+              <td>固定 W 后 s = Σᵢ₌₁^M λᵢuᵢ²（λᵢ 为 W 特征值、u 球面坐标）——秩 ≤ M
+                的加权卡方和，<strong>正偏：众数 &lt; 中位数 &lt; 均值 trW/D</strong>，
+                偏度 γ₁ ~ √(8/M_eff)，M_eff = (trW)²/tr(W²)</td>
+              <td>"实例高斯"（红虚线）只配前两矩、对称，峰钉在均值 ⇒ 直方图峰系统性偏左
+                ≈ σ·γ₁/2、右尾更厚——不是误差，是形状。"实例偏态"（紫）= 精确形状
+                （伽马/K_ν）标准化后仿射到实例矩：f(s) = f₀(c + (s−trW/D)/b)/b，
+                b = √(Var_inst/Var₀)，峰位对齐；α &gt; 0 时特征值更散、M_eff 更小、偏更甚</td>
             </tr>
           </tbody>
         </table>

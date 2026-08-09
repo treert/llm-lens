@@ -52,6 +52,21 @@ $$\text{中间层：}\ \mathrm{Var}(\mathrm{tr}W/D) = \frac{2M\,\mathrm{var}_B^2
 proj-dot-demo 的 $\mathrm{tr}M = \langle M_a,M_b\rangle_F$ 是**符号和**
 （涨落 $\sqrt{H/D}$ 不消失）。同为二次型，长度统计稳健、点积均值脆弱。
 
+**实例分布的形状：右偏，不是高斯。** 固定 $W$ 后秩 $\le M$，在特征基下
+$s=\sum_{i=1}^{M}\lambda_i u_i^2$（$u$ 为球面坐标）——约 $M$ 个有效自由度的加权
+卡方和，**正偏：众数 < 中位数 < 均值 $\mathrm{tr}W/D$**，偏度
+$\gamma_1\sim\sqrt{8/M_{\mathrm{eff}}}$，$M_{\mathrm{eff}}=(\mathrm{tr}W)^2/\mathrm{tr}(W^2)$。
+红虚线"实例高斯"只匹配前两阶矩、对称、峰钉在均值，所以直方图的峰相对它系统性
+偏左 $\approx\sigma\gamma_1/2$、右尾更厚——这不是采样误差，换种子只平移中心、
+偏度方向不变（$M{=}64,D{=}256$ 时偏移约 $0.04$，肉眼可见）。紫曲线"实例偏态"
+把精确形状（中间层伽马 / 完整块 $K_\nu$）标准化后**仿射变换到实例矩**：
+
+$$f(s)=\frac1b\,f_0\!\Big(c+\frac{s-\mathrm{tr}W/D}{b}\Big),\qquad
+b=\sqrt{\mathrm{Var}_{\mathrm{inst}}/\mathrm{Var}_0}$$
+
+（$c$、$\mathrm{Var}_0$ 为 annealed 均值/方差）——保留右偏形状、峰位对齐直方图。
+$\alpha>0$ 时特征值更分散、$M_{\mathrm{eff}}$ 更小，偏得更明显。
+
 ## 用法
 
 直接用浏览器打开 `index.html` 即可（ECharts 走 CDN，需要联网）。
@@ -93,6 +108,9 @@ proj-dot-demo 的 $\mathrm{tr}M = \langle M_a,M_b\rangle_F$ 是**符号和**
   实例曲线/统计表标注"Hutchinson 估计"。$k{=}64$ 时 trW 误差 ~0.2%、trW2 ~0.3%。
 - **横轴**：归一 ÷均值 或原始 $s$；线性或对数刻度（重尾建议对数）。
 - **纵轴**：线性或对数（看拉伸指数尾）。
+- 曲线勾选：精确理论（蓝）、高斯近似（灰虚）、实例高斯（红，对称、峰在均值）
+  与**实例偏态**（紫，精确形状仿射到实例矩，峰位贴合直方图——实例分布右偏，
+  众数 < 均值，见上节）。
 - 标线：均值（$1$ 或 $M/D$，灰虚线）与中位数 $\approx e^{-(1/M+1/D)}$（橙点线）。
 - 统计表：样本均值/标准差/中位数/$\ln s$ 矩 vs 理论；方案二附加 $\mathrm{tr}W/D$
   与中心跳动幅度。
