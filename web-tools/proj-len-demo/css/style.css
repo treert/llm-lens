@@ -91,6 +91,16 @@ header h1 {
   min-width: 140px;
 }
 
+/* 矩阵相关 α 滑块收窄：α ∈ [0,0.99] 不需要 M/D 那么长的行程，避免撑开布局 */
+.control-alpha {
+  flex: 0 0 320px;
+  max-width: 320px;
+}
+
+.control-alpha input[type="range"] {
+  min-width: 0; /* 覆盖 control-slider 的 140px 下限，让滑块在窄容器内自适应 */
+}
+
 .control input[type="number"] {
   width: 80px;
   padding: 4px 6px;

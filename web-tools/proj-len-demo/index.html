@@ -3,26 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>瓶颈投影链的长度平方分布：y = (AB)^L x（伽马、K_ν 乘积与深度对数正态）</title>
+  <title>瓶颈投影块的长度平方分布：y = ABx（伽马与 K_ν 乘积卡方）</title>
   <link rel="stylesheet" href="css/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
   <header>
     <div class="header-row">
-      <h1>瓶颈投影链的长度平方分布：y = (AB)<sup>L</sup> x</h1>
+      <h1>瓶颈投影块的长度平方分布：y = ABx</h1>
     </div>
     <p class="subtitle">
-      s = ‖(AB)<sup>L</sup>x‖²：B 为 M×D（元素方差 1/D，下投）、A 为 D×M（方差 1/M，上投）
+      s = ‖ABx‖²：B 为 M×D（元素方差 1/D，下投）、A 为 D×M（方差 1/M，上投）
       的独立高斯矩阵，x 为单位向量——配对 fan-in 使 <strong>E‖ABx‖² = ‖x‖²</strong>，
-      长度期望逐块保值（均值恒 1）。M ∈ [1, 4D] 控制瓶颈宽度。
-      观测目标可选完整链 y 或中间层 z = Bx（压缩分布，B 方差可选 1/D——均值 M/D，
+      长度期望保值（均值恒 1）。M ∈ [1, 4D] 控制瓶颈宽度。
+      观测目标可选完整块 y 或中间层 z = Bx（压缩分布，B 方差可选 1/D——均值 M/D，
       或 1/M——均值归一 = 1）。
-      <strong class="legend-note note-blue">蓝线：精确理论（中间层伽马 χ²_M/D / 单块 K_ν 乘积伽马）</strong>；
-      <strong class="legend-note note-purple">紫线：对数正态近似（深度极限）</strong>；
-      <strong class="legend-note note-red">红线：方案二实例高斯（固定链，随机 x）</strong>；
+      <strong class="legend-note note-blue">蓝线：精确理论（中间层伽马 varB·χ²_M / 单块 K_ν 乘积伽马）</strong>；
+      <strong class="legend-note note-red">红线：方案二实例高斯（固定矩阵，随机 x）</strong>；
       <strong class="legend-note note-teal">青色填充：蒙特卡洛直方图</strong>。
-      均值恒 1，但中位数 ≈ e^(−L(1/M+1/D)) 随深度萎缩——LayerNorm 的随机矩阵注脚（瓶颈版）。
+      均值恒 1，但中位数 ≈ e^(−(1/M+1/D))——均值被重尾撑着、典型样本偏小。
       姊妹篇：spectrum-demo（谱）、proj-dot-demo（点积）。
     </p>
   </header>
@@ -38,7 +37,7 @@
     <div class="control control-scheme">
       <label>观测</label>
       <span class="seg">
-        <label><input type="radio" name="obs" value="chain" checked /> 完整链 y = (AB)^L x（长度保值）</label>
+        <label><input type="radio" name="obs" value="chain" checked /> 完整块 y = ABx（长度保值）</label>
         <label><input type="radio" name="obs" value="mid" /> 中间层 z = Bx（压缩分布）</label>
       </span>
     </div>
@@ -52,17 +51,6 @@
   </section>
 
   <section class="controls">
-    <div class="control">
-      <label for="selL">块数 L</label>
-      <select id="selL">
-        <option value="1" selected>1（单块 AB：乘积卡方）</option>
-        <option value="2">2（(AB)²）</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
-        <option value="8">8</option>
-        <option value="16">16（深链：对数正态）</option>
-      </select>
-    </div>
     <div class="control control-slider">
       <label for="sliderM">M（瓶颈维，≤ 4D）</label>
       <input id="sliderM" type="range" min="0" max="1000" value="500" />
@@ -71,7 +59,7 @@
     <div class="control control-slider">
       <label for="sliderD">D（输入维）</label>
       <input id="sliderD" type="range" min="0" max="1000" value="667" />
-      <input id="inputD" type="number" min="16" max="1024" step="1" value="256" />
+      <input id="inputD" type="number" min="16" max="8192" step="1" value="256" />
     </div>
     <div class="control">
       <label for="selN">样本数</label>
@@ -82,6 +70,11 @@
         <option value="300000">30 万</option>
       </select>
     </div>
+    <div class="control control-slider control-alpha">
+      <label for="sliderAlpha">相关 α</label>
+      <input id="sliderAlpha" type="range" min="0" max="1000" value="0" />
+      <input id="inputAlpha" type="number" min="0" max="0.99" step="0.05" value="0" />
+    </div>
     <div class="control">
       <label for="inputSeed">矩阵种子</label>
       <input id="inputSeed" type="number" min="0" step="1" value="1" />
@@ -89,6 +82,8 @@
     </div>
     <div class="control">
       <button type="button" id="btnResample">运行采样</button>
+      <button type="button" id="btnPause" disabled>暂停</button>
+      <button type="button" id="btnReset" disabled>重置</button>
       <span id="staleHint" class="stale-hint"></span>
     </div>
   </section>
@@ -99,7 +94,6 @@
         <span class="cc-group">
           曲线：
           <label><input id="chkTheory" type="checkbox" checked /> 精确理论（中间层 / 单块）</label>
-          <label><input id="chkLN" type="checkbox" /> 对数正态近似</label>
           <label><input id="chkGauss" type="checkbox" /> 高斯近似</label>
           <label><input id="chkInst" type="checkbox" checked /> 实例高斯（方案二）</label>
         </span>
@@ -127,9 +121,9 @@
           </thead>
           <tbody>
             <tr>
-              <td>卡方因子化（精确，任意 L）</td>
-              <td>s = ∏_{l=1..L} [χ²_M·χ²_D/(DM)]，2L 个因子独立</td>
-              <td>条件于上层输出 z，‖Az‖² = (‖z‖²/M)χ²_D 且独立 ⇒ 递推；
+              <td>卡方因子化（精确）</td>
+              <td>s = χ²_M·χ²_D/(DM)，两个独立卡方因子</td>
+              <td>中间层 ‖Bx‖² = varB·χ²_M；条件于 z = Bx，‖Az‖² = (‖z‖²/M)χ²_D 且独立；
                 与 x 方向严格无关（各向同性）</td>
             </tr>
             <tr>
@@ -138,33 +132,30 @@
                 varB = 1/D：均值 M/D；varB = 1/M：均值 1、方差 2/M</td>
               <td>M = 1：s^(−1/2) 原点发散；M = 2：指数分布；M 大：高斯化。
                 varB = 1/D 时瓶颈压缩 ⇒ 典型长度 √(M/D)；
-                varB = 1/M 时与完整链同刻度（均值 1），只剩 M 控制的涨落</td>
+                varB = 1/M 时与完整块同刻度（均值 1），只剩 M 控制的涨落</td>
             </tr>
             <tr>
-              <td>单块 AB（L = 1）：K_ν 乘积伽马</td>
+              <td>完整块 AB：K_ν 乘积伽马（精确）</td>
               <td>f(s) = 2s^(k̄−1)K_{k1−k2}(2√(s/θ₁θ₂)) / (Γ(k₁)Γ(k₂)(θ₁θ₂)^k̄)<br />
                 k₁ = M/2，θ₁ = 2/D，k₂ = D/2，θ₂ = 2/M，k̄ = (k₁+k₂)/2</td>
               <td>均值恰 1（配对 fan-in）；ν = (M−D)/2 任意阶 K_ν（积分表示 + 递推，
                 log 域）；M = D = 2 时原点对数发散；右尾 e^(−2√(s/θ₁θ₂)) 拉伸指数</td>
             </tr>
             <tr>
-              <td>L 块矩（精确）</td>
-              <td>均值 1（不变）；方差 [(1+2/M)(1+2/D)]^L − 1</td>
-              <td>配对 fan-in 每块保持 E‖·‖²，但相对方差 ≈ e^(2L(1/M+1/D)) − 1 层层累积</td>
-            </tr>
-            <tr>
-              <td>对数域（深度渐近）</td>
-              <td>ln s ≈ N(μ, σ²)：μ = L[ψ(M/2)−ln(M/2) + ψ(D/2)−ln(D/2)] ≈ −L(1/M+1/D)<br />
-                σ² = L[ψ′(M/2)+ψ′(D/2)]；中位数 ≈ e^μ ≈ e^(−L(1/M+1/D))</td>
-              <td>均值被重尾撑着恒为 1，中位数指数萎缩——深度方向的对数正态涨落，
-                LayerNorm 压掉的正是它；瓶颈越窄（M 小）萎缩越快</td>
+              <td>完整块矩（精确）</td>
+              <td>均值 1；方差 2/M + 2/D + 4/(MD)<br />
+                对数域：E ln s = ψ(M/2)−ln(M/2) + ψ(D/2)−ln(D/2) ≈ −(1/M+1/D)<br />
+                Var(ln s) = ψ′(M/2)+ψ′(D/2)；中位数 ≈ e^(−(1/M+1/D))</td>
+              <td>均值恒 1 但中位数 &lt; 1：均值被重尾（上投 A 注入的 2/D 涨落）撑着，
+                典型样本偏小；瓶颈越窄（M 小）偏得越多</td>
             </tr>
             <tr>
               <td>方案二（quenched）球面二次型</td>
               <td>E_x[s] = trW/D，Var_x(s) = 2[trW² − (trW)²/D] / (D(D+2))<br />
-                （W = PᵀP，P = A(BA)^{L−1}B，结合律避免 O(LD³)）</td>
+                （W = PᵀP，P = AB；<strong>不构造 D×D 的 P</strong>：
+                trW = ‖AB‖²_F = tr G、tr(W²) = tr(G²)，G = (AᵀA)(BBᵀ) 为 M×M）</td>
               <td>self-averaging：实例内方差 ≈ annealed 方差的大部分（形状不动）；
-                中心 trW/D 跳动：中间层 √(2M·varB²/D)、单块 √((2M+4D+2)/(MD²))，随维度消失
+                中心 trW/D 跳动：中间层 √(2M·varB²/D)、完整块 √((2M+4D+2)/(MD²))，随维度消失
                 （trW 是平方和的自平均——对照 proj-dot-demo 的 trM 符号和，
                 涨落 √(H/D) 不消失）</td>
             </tr>
@@ -172,10 +163,11 @@
         </table>
         <p>
           与 FFN / 低秩投影的联系：y = ABx 正是"降维-升维"瓶颈块（FFN、适配器、
-          LoRA 式结构）的初始化零模型——1/D 与 1/M 的配对缩放让长度期望逐块保值，
-          但逐块的卡方涨落相乘 ⇒ 深度方向必然对数正态化、典型长度萎缩；
-          瓶颈比 M/D 越小，单块相对方差 2/M+2/D 越大。训练后的权重谱脱离随机基线，
-          长度的实际行为也随之偏离——本页是对照零模型。
+          LoRA 式结构）的初始化零模型——1/D 与 1/M 的配对缩放让长度期望保值（均值 1），
+          但两个卡方涨落相乘 ⇒ 单块即重尾化、典型长度偏小（中位数 ≈ e^(−(1/M+1/D))）；
+          瓶颈比 M/D 越小，相对方差 2/M+2/D+4/(MD) 越大。方案二不构造 D×D 的 P
+          （采样分步 z=Bx、‖Az‖²，O(MD)/样本；实例矩用 M×M 小矩阵），所以 D 可达 8192。
+          训练后的权重谱脱离随机基线，长度的实际行为也随之偏离——本页是对照零模型。
         </p>
       </div>
     </div>
