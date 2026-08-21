@@ -13,11 +13,11 @@
   整体旋转 $R_i = \mathrm{blockdiag}\bigl(r(i\theta_1), \dots, r(i\theta_{H/2})\bigr) \in \mathbb{R}^{H \times H}$；
 - 频率几何分布 $\theta_r = b^{-2(r-1)/H}$，base $b$（经典值 $10^4$；各模型见 config 的
   `rope_theta`，长上下文模型另有 `rope_scaling`）；
-- 作用方式：$q_i = R_i W_Q x_i$，$k_j = R_j W_K x_j$。
+- 作用方式： $q_i = R_i W_Q x_i$， $k_j = R_j W_K x_j$。
 
 ## 1. 核心恒等式：点积只依赖相对位置
 
-旋转群的基本同态（整数加法群 $\to SO(2)$）：$r(\phi)^\top r(\psi) = r(\psi - \phi)$，
+旋转群的基本同态（整数加法群 $\to SO(2)$）： $r(\phi)^\top r(\psi) = r(\psi - \phi)$，
 分块对角后 $R_i^\top R_j = R_{j-i}$。于是分数
 
 $$s(i, j) = q_i \cdot k_j = x_i^\top W_Q^\top R_i^\top R_j\, W_K x_j
@@ -25,17 +25,17 @@ $$s(i, j) = q_i \cdot k_j = x_i^\top W_Q^\top R_i^\top R_j\, W_K x_j
 
 两个直接推论：
 
-- **相对性**：绝对位置被消去（$R_i^\top$ 吸收 $i$），分数天然平移不变；
+- **相对性**：绝对位置被消去（ $R_i^\top$ 吸收 $i$），分数天然平移不变；
 - **精确性**：位置差 $m$ 变成**精确相位差** $m\theta_r$——恒等式层面无近似。
   位置的代数结构（相邻差 1、差可累加）被无噪声地表示为旋转复合；
   旋转是正交变换，不改变向量范数——位置以**相位**形式存在，不与内容竞争能量。
 
-$m = 0$ 时 $R_0 = I$，$M(0) = M$ 即 `qk-spectrum.md` 分析的无位置矩阵。
+$m = 0$ 时 $R_0 = I$， $M(0) = M$ 即 `qk-spectrum.md` 分析的无位置矩阵。
 
 ## 2. 单通道几何：相位差编码
 
-第 $r$ 个 2D 通道，记 $u = (W_Q x_i)^{(r)} \in \mathbb{R}^2$、$v = (W_K x_j)^{(r)}$，
-极坐标 $u = |u|(\cos\alpha, \sin\alpha)$、$v = |v|(\cos\beta, \sin\beta)$：
+第 $r$ 个 2D 通道，记 $u = (W_Q x_i)^{(r)} \in \mathbb{R}^2$、 $v = (W_K x_j)^{(r)}$，
+极坐标 $u = |u|(\cos\alpha, \sin\alpha)$、 $v = |v|(\cos\beta, \sin\beta)$：
 
 $$u^\top r(m\theta_r)\, v = |u|\,|v|\,\cos\bigl(m\theta_r + \beta - \alpha\bigr)$$
 
@@ -51,7 +51,7 @@ $$s(m) = \sum_{r=1}^{H/2} A_r \cos\bigl(m\theta_r + \phi_r\bigr),
 
 几何分布的频率 $\theta_r$（从 $\approx 1$ 到 $\approx b^{-1}$）相当于**多进制展开**：
 高频通道分辨相邻位置（周期几个 token），低频通道覆盖远程（周期 $2\pi b$）。
-信息量对账：位置只需 $\log_2 L$ 比特，$H/2$ 个频率通道绰绰有余；
+信息量对账：位置只需 $\log_2 L$ 比特， $H/2$ 个频率通道绰绰有余；
 语义与位置在同一向量中**频分复用**——各通道的相位跑位置、振幅跑内容。
 
 各通道振幅 $A_r$ 由权重与内容决定 → 训练可以选择"哪个头用哪些频率"：
@@ -60,7 +60,7 @@ $$s(m) = \sum_{r=1}^{H/2} A_r \cos\bigl(m\theta_r + \phi_r\bigr),
 ## 4. 唯一性范围与外推混叠
 
 - **无混叠范围** $\approx$ 最长周期 $T_{\max} = 2\pi/\theta_{\min} \approx 2\pi b$
-  （$b = 10^4$ 时约 6.3 万 token）；$m$ 与 $m + T_r$ 在通道 $r$ 上同相位；
+  （ $b = 10^4$ 时约 6.3 万 token）； $m$ 与 $m + T_r$ 在通道 $r$ 上同相位；
 - **真正的外推失败机制更细**：训练只见过 $m \in [0, L_{\text{train}}]$，
   低频通道在训练窗口内走不完一个周期——外推时这些通道的相位是
   **训练分布外（OOD）的输入**，分数行为失控，而不是"缓慢算错"；
@@ -79,7 +79,7 @@ $|m|$ 衰减**（把 $\sum_r h_r e^{im\theta_r}$ 型求和用 Abel 变换界住�
 
 ## 6. 与加性位置编码的对比
 
-加性 PE（$x + p_i$，正弦或可学习）代入双线性形，四项分离：
+加性 PE（ $x + p_i$，正弦或可学习）代入双线性形，四项分离：
 
 $$s(i,j) = \underbrace{x_i^\top M x_j}_{\text{内容}\times\text{内容}}
 + \underbrace{x_i^\top M p_j + p_i^\top M x_j}_{\text{内容}\times\text{位置}}
@@ -135,15 +135,15 @@ $$q \cdot k = \underbrace{q_{\text{nope}} \cdot k_{\text{nope}}}_{\text{逐头�
   两类内容通道：rot 块 K 侧 96 头一致，各头分工完全体现在 Q 侧与 nope 块；
 - 谱分析的含义：`qk-spectrum.md` 的 $M$ 谱框架对**整个 192 维 QK 空间**直接成立，
   无需剥离位置项；两块能级的分界在实测谱上留下指纹
-  （$\sigma_i$ 在 $i \approx 64$ 处的台阶，见 `qk-spectrum-k3-empirical.md`）。
+  （ $\sigma_i$ 在 $i \approx 64$ 处的台阶，见 `qk-spectrum-k3-empirical.md`）。
 
 ## 9. 静态分析切入点
 
 RoPE 本身是与权重无关的纯数学对象（旋转矩阵可按频率直接构造），
 但"头如何利用位置通道"可从权重静态检验：
 
-- **位置敏感度曲线**：$M(m) = W_Q^\top R_m W_K$ 的谱范数 $\sigma_1(M(m))$
-  随 $m$ 的变化（$m \in [-L, 0]$，因果注意力只用过去）；
+- **位置敏感度曲线**： $M(m) = W_Q^\top R_m W_K$ 的谱范数 $\sigma_1(M(m))$
+  随 $m$ 的变化（ $m \in [-L, 0]$，因果注意力只用过去）；
 - **位置头指纹**：曲线在 $m = -1$ 附近的尖锐峰 → previous-token 型头；
   平坦曲线 → 内容主导头（位置通道振幅小）；
 - **MLA 分工检验**（适用于旋转版 MLA）：分别对 nope / rope 子空间做上述分析，

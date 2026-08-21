@@ -77,7 +77,7 @@ kernel 是 Triton);压榨最后 20%(FA3/FA4 级、硬件新特性 TMA/wgmma)
 按 [10-flashattention.md](10-flashattention.md) 的概念找代码,建议顺序:
 
 1. **Triton 版 tutorial**(triton repo `fused-attention.py`):几百行,
-   外 Q 内 KV 循环、$(m, \ell, \tilde O)$ 三元组、除 $\ell$ 收尾——
+   外 Q 内 KV 循环、 $(m, \ell, \tilde O)$ 三元组、除 $\ell$ 收尾——
    与本文档 §2 伪代码逐行对应,先读这个;
 2. **FA2 官方 CUDA**(flash-attention repo):CUTLASS 风格,
    看 grid 维度的并行化与 warp 分工如何落地(本文档 §4);

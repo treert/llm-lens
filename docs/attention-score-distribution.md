@@ -1,25 +1,25 @@
 # 注意力分数的分布：从初始化到训练后
 
-注意力头里单个分数的计算：$A$、$B$ 两个 $D$ 维向量先各自做低维投影
-（$q = W_Q A$，$k = W_K B$，$W_Q$、$W_K$ 为 $H \times D$，$H$ 为头维），再在 $H$ 维空间做点积：
+注意力头里单个分数的计算： $A$、 $B$ 两个 $D$ 维向量先各自做低维投影
+（ $q = W_Q A$， $k = W_K B$， $W_Q$、 $W_K$ 为 $H \times D$， $H$ 为头维），再在 $H$ 维空间做点积：
 
 $$s = q \cdot k = (W_Q A)^\top (W_K B)$$
 
-问题：$s$ 的概率密度分布由什么决定？本文推导两个阶段的答案——
+问题： $s$ 的概率密度分布由什么决定？本文推导两个阶段的答案——
 **初始化时**由 $(D, H, \sigma^2)$ 完全决定（且形状只看 $H$）；
-**训练后**由 $M = W_Q^\top W_K$ 的奇异值谱决定（$H$ 只是有效秩上限）。
+**训练后**由 $M = W_Q^\top W_K$ 的奇异值谱决定（ $H$ 只是有效秩上限）。
 
 演示工具：`web-tools/noise-ops-demo` 面板二「投影点积（attention 分数）」模式；
 基础分布（乘积正态、Bessel-K 点积、卡方）的推导见其 README §1–§2。
 
 ## 设定
 
-- $A$、$B$ 分量 iid，$\mathcal{N}(0, \sigma^2)$（对一次前向传播而言是随机的输入）
-- $W_Q$、$W_K$ 元素 iid，$\mathcal{N}(0, \sigma_w^2)$，**初始化后固定**（模型视角：权重给定、输入随机）
+- $A$、 $B$ 分量 iid， $\mathcal{N}(0, \sigma^2)$（对一次前向传播而言是随机的输入）
+- $W_Q$、 $W_K$ 元素 iid， $\mathcal{N}(0, \sigma_w^2)$，**初始化后固定**（模型视角：权重给定、输入随机）
 
 ## 1. 初始化时：精确分布
 
-$q$ 的每个分量是独立正态的加权和（$W$ 固定，属"一方固定"情形）：
+$q$ 的每个分量是独立正态的加权和（ $W$ 固定，属"一方固定"情形）：
 
 $$q_i = \sum_{j=1}^D (W_Q)_{ij} A_j \;\sim\; \mathcal{N}(0,\; D\sigma_w^2\sigma^2),
 \qquad q_1,\dots,q_H \text{ 相互独立}$$
@@ -34,10 +34,10 @@ $$\mathbb{E}[s] = 0, \qquad \mathrm{Var}(s) = H\,(D\sigma_w^2\sigma^2)^2 = H D^2
 
 两个直接推论：
 
-- **形状只看 $H$**：$H=1$ 是乘积正态（尖峰重尾），$H=2$ 是 Laplace，$H$ 增大由 CLT 趋于正态；
+- **形状只看 $H$**： $H=1$ 是乘积正态（尖峰重尾）， $H=2$ 是 Laplace， $H$ 增大由 CLT 趋于正态；
   $D$ 只通过分量方差进入尺度。
-- **$\sigma_w^2 = 1/D$（标准初始化）时投影保持分量方差**：$q_i$、$k_i$ 的方差仍是 $\sigma^2$，
-  $D$ 从公式中消失，$\mathrm{Var}(s) = H\sigma^4$。这就是 softmax 前除以 $\sqrt{H}$ 的来源——
+- **$\sigma_w^2 = 1/D$（标准初始化）时投影保持分量方差**： $q_i$、 $k_i$ 的方差仍是 $\sigma^2$，
+  $D$ 从公式中消失， $\mathrm{Var}(s) = H\sigma^4$。这就是 softmax 前除以 $\sqrt{H}$ 的来源——
   双方随机点积按 $1/\sqrt{\text{维数}}$ 缩放（对比：线性层初始化按 $1/D_{in}$，
   因为那里是"一方固定"情形，见 noise-ops-demo README §3）。
 
@@ -47,36 +47,36 @@ $$\mathbb{E}[s] = 0, \qquad \mathrm{Var}(s) = H\,(D\sigma_w^2\sigma^2)^2 = H D^2
 
 | 步骤 | 情形 | 规则 | 效果 |
 |---|---|---|---|
-| $q = W_Q A$（线性投影） | 一方固定（$W$ 给定，$A$ 随机） | $\sigma_w^2 = 1/D$ | 分量方差不变（$\sigma^2 \to \sigma^2$） |
-| $s = q \cdot k$（点积） | 双方随机（$q$、$k$ 都来自数据） | $\div\sqrt{H}$ | 分数方差归一（$H\sigma^4 \to \sigma^4$） |
+| $q = W_Q A$（线性投影） | 一方固定（ $W$ 给定， $A$ 随机） | $\sigma_w^2 = 1/D$ | 分量方差不变（ $\sigma^2 \to \sigma^2$） |
+| $s = q \cdot k$（点积） | 双方随机（ $q$、 $k$ 都来自数据） | $\div\sqrt{H}$ | 分数方差归一（ $H\sigma^4 \to \sigma^4$） |
 
-## 3. 上游：$\sigma^2$ 从哪里来
+## 3. 上游： $\sigma^2$ 从哪里来
 
-实际网络中 attention 的输入 $A$、$B$ 来自上游层输出，其分量方差 $\sigma^2$ 并不随意：
+实际网络中 attention 的输入 $A$、 $B$ 来自上游层输出，其分量方差 $\sigma^2$ 并不随意：
 pre-norm 架构里它们先经过 RMSNorm 归一到 1（原理见
 [rmsnorm.md](rmsnorm.md)），再经 $\sigma_w^2 = 1/D$ 的投影保持——
 所以实际分数方差恒为 1，而不依赖输入尺度。整条方差链见 rmsnorm.md §3。
 
 ## 4. 训练后：奇异值谱决定一切
 
-把两次投影合并：$s = A^\top M B$，其中 $M = W_Q^\top W_K$ 是 $D \times D$ 矩阵、$\mathrm{rank}(M) \le H$。
-对 $M$ 做 SVD（$M = \sum_i \sigma_i u_i v_i^\top$），由于 $u_i$、$v_i$ 各自正交，
-$\xi_i = u_i \cdot A/\sigma$、$\eta_i = v_i \cdot B/\sigma$ 仍是独立标准正态，故
+把两次投影合并： $s = A^\top M B$，其中 $M = W_Q^\top W_K$ 是 $D \times D$ 矩阵、 $\mathrm{rank}(M) \le H$。
+对 $M$ 做 SVD（ $M = \sum_i \sigma_i u_i v_i^\top$），由于 $u_i$、 $v_i$ 各自正交，
+$\xi_i = u_i \cdot A/\sigma$、 $\eta_i = v_i \cdot B/\sigma$ 仍是独立标准正态，故
 
 $$s = \sum_{i=1}^{r} \sigma_i\,\xi_i\eta_i, \qquad
 \mathbb{E}[s] = 0,\quad \mathrm{Var}(s) = \sigma^4 \sum_i \sigma_i^2 = \sigma^4 \|M\|_F^2$$
 
 即 $s$ 是**加权的独立乘积和**，分布形状由奇异值谱 $\{\sigma_i\}$ 决定：
 
-- **谱平**（$\sigma_i$ 全等、$r = H$）：退化为初始化时的 $H$ 维点积形状；
+- **谱平**（ $\sigma_i$ 全等、 $r = H$）：退化为初始化时的 $H$ 维点积形状；
 - **谱集中**（有效秩 $r_{eff} = \bigl(\sum_i \sigma_i\bigr)^2 \big/ \sum_i \sigma_i^2 \ll H$）：
-  趋向少数乘积项之和，分布变尖峰重尾；$r=1$ 极限就是乘积正态（单个 $\xi\eta$）。
+  趋向少数乘积项之和，分布变尖峰重尾； $r=1$ 极限就是乘积正态（单个 $\xi\eta$）。
 - 所以"$H$ 决定形状"只在谱平时成立。训练倾向于把谱学得集中
   （注意力投影的有效秩通常远小于 $H$——这也是 LoRA 类低秩微调的前提之一），
   因此训练后的分数分布一般比初始化时更尖、尾更重。
 
 初始化时 $\sigma_w^2 = 1/D$ 的谱是"平"的典型样本：
-$\mathbb{E}\|M\|_F^2 = D^2 \cdot H \cdot \sigma_w^4 = H$（$\sigma_w = 1/\sqrt{D}$），
+$\mathbb{E}\|M\|_F^2 = D^2 \cdot H \cdot \sigma_w^4 = H$（ $\sigma_w = 1/\sqrt{D}$），
 平均到 $H$ 个方向各摊 $\sim 1$，与 §1 的 $\mathrm{Var}(s) = H\sigma^4$ 一致。
 
 训练后谱的经验规律（文献）与用开源权重验证的方案见
@@ -85,8 +85,8 @@ $\mathbb{E}\|M\|_F^2 = D^2 \cdot H \cdot \sigma_w^4 = H$（$\sigma_w = 1/\sqrt{D
 ## 5. 演示
 
 `web-tools/noise-ops-demo` 面板二「投影点积（attention 分数）」模式：
-参数 $D$（输入维）、$H$（头维）、$\sigma^2$（输入分量方差），$\sigma_w^2 = 1/D$ 固定；
-$W_Q$、$W_K$ 由种子生成后固定。演示的是 **scaled** 分数 $s/\sqrt{H}$（scaled dot-product
-attention 的做法）：理论线为 $H$ 维 Bessel-K 的 $\sqrt{H}$ 缩放版，$\mathrm{Var} = \sigma^4$ 恒定。
-拖 $H$：形状从尖峰（$H=1$）→ Laplace（$H=2$）→ 正态（大 $H$），而尺度不动——
+参数 $D$（输入维）、 $H$（头维）、 $\sigma^2$（输入分量方差）， $\sigma_w^2 = 1/D$ 固定；
+$W_Q$、 $W_K$ 由种子生成后固定。演示的是 **scaled** 分数 $s/\sqrt{H}$（scaled dot-product
+attention 的做法）：理论线为 $H$ 维 Bessel-K 的 $\sqrt{H}$ 缩放版， $\mathrm{Var} = \sigma^4$ 恒定。
+拖 $H$：形状从尖峰（ $H=1$）→ Laplace（ $H=2$）→ 正态（大 $H$），而尺度不动——
 直观感受"除以 $\sqrt{H}$"如何把方差稳住，以及"形状只看 $H$"的含义。

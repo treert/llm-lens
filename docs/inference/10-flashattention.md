@@ -41,7 +41,7 @@ attention 逐元素等价),它不是稀疏/低秩之类的近似方法;它改的
 
 思想一句话:把 Q、K、V 沿序列维切成小块(tile),让一个 tile 的计算全程在
 SRAM/寄存器内完成;softmax 的全局依赖用 online softmax 的运行状态化解,
-$S$、$P$ 永远不落 HBM。
+$S$、 $P$ 永远不落 HBM。
 
 每个 Q tile 沿 KV 方向流式扫描,寄存器里长驻未归一化三元组
 $(m, \ell, \tilde O)$:
@@ -62,7 +62,7 @@ LSE = m + log ℓ                          # 一并写出,留给反向/合并用
 
 其中 $\tilde O$ 的更新利用的正是 online softmax 的可结合 merge
 (见 09-online-softmax.md §5):旧累加按 $e^{m_{\text{old}}-m_{\text{new}}}$ 缩放后,
-把新块的未归一化 $PV$ 直接加进去。$P$ 从未被显式物化。
+把新块的未归一化 $PV$ 直接加进去。 $P$ 从未被显式物化。
 
 **Causal Mask 的块稀疏处理**(训练/prefill 阶段):按 tile 行列索引分类——
 

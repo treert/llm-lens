@@ -10,7 +10,7 @@ Tensor Core 数据类型,以及消费卡与数据中心卡的差异。
 
 $$I = \frac{\text{FLOPs}}{\text{访存字节数}}$$
 
-硬件有一个**平衡点**(ridge point)= 峰值算力 / 峰值带宽。$I$ 低于它,
+硬件有一个**平衡点**(ridge point)= 峰值算力 / 峰值带宽。 $I$ 低于它,
 性能被带宽封顶(memory-bound);高于它,被算力封顶(compute-bound)。
 
 | 硬件 | FP16 tensor 算力 | 显存带宽 | 平衡点(FLOP/byte) |
@@ -30,7 +30,7 @@ $$I = \frac{\text{FLOPs}}{\text{访存字节数}}$$
 
 所有推理优化几乎都能在这张图上定位:量化(降低字节数 → 同带宽下
 吞吐升高)、FlashAttention(把 softmax 的访存从 HBM 提到 SRAM →
-提高有效 $I$)、speculative decoding(带宽不变,$I$ ×$k$)。
+提高有效 $I$)、speculative decoding(带宽不变,$I$ × $k$)。
 
 ## 2. 存储层级:优化就是"让数据往上一层"
 

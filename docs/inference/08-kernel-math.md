@@ -66,7 +66,7 @@ $$\mathrm{softmax}(z_i) = \frac{e^{z_i}}{\sum_j e^{z_j}}$$
 (推导与手算例子见 [09-online-softmax.md](09-online-softmax.md))。
 
 FlashAttention 把这套"边走边修正"推广到整条 attention 流水线:tiling +
-寄存器长驻未归一化三元组 $(m, \ell, \tilde O)$,$S$、$P$ 永远不落 HBM,
+寄存器长驻未归一化三元组 $(m, \ell, \tilde O)$,$S$、 $P$ 永远不落 HBM,
 显存从 $O(N^2)$ 降到 $O(N)$,且**数学上仍是精确注意力**
 (机制与 FA1→FA4 演进见 [10-flashattention.md](10-flashattention.md))。
 
