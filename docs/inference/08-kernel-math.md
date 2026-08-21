@@ -53,7 +53,9 @@ $$\mathrm{softmax}(z_i) = \frac{e^{z_i}}{\sum_j e^{z_j}}$$
   长序列下是访存灾难;现在由 FlashAttention 在 tile 调度层分类处理
   (跳过 / 免掩码 / 边界块片上判定),掩码访存归零,计算与访存近减半,
   详见 [10-flashattention.md](10-flashattention.md) §2。decode 阶段 query 长度为 1,
-  所有历史 KV 都该可见,**无需显式掩码**。
+  所有历史 KV 都该可见,**无需显式掩码**(例外:speculative decoding 的
+  验证步一次并行算多个候选位置,需树形/多 token mask,
+  见 [05-throughput.md](05-throughput.md) §6)。
 - **Temperature**:$\mathrm{softmax}(z / T)$,$T<1$ 分布变尖锐(趋于确定性),
   $T>1$ 变平坦(多样性高)。
 

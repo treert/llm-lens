@@ -71,7 +71,8 @@ Tensor Core 是 SM 内的矩阵乘专用单元($D = AB + C$ 一条指令完成�
 要点:
 
 - **BF16 vs FP16**:同吞吐;BF16 范围大精度低(8 位指数 7 位尾数),
-  训练爱用;推理两者皆可([08-kernel-math.md](08-kernel-math.md) 开头的讨论);
+  训练爱用;推理两者皆可(规约类 kernel 内部统一用 FP32 累加兜底,
+  见 [08-kernel-math.md](08-kernel-math.md) §1);
 - **FP8 是推理甜点**:精度足够、算力翻倍、权重减半,Ada(40 系)起
   消费卡也有(见 [04-quantization.md](04-quantization.md) §7);
 - **FP4 目前主要服务于 Blackwell 生态**(NVFP4 等),模型与 kernel
