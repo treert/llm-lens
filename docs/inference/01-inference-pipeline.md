@@ -31,7 +31,7 @@ prompt → tokenize → ids[N]
              attn: RMSNorm → q/k/v 投影 → RoPE → attention → o 投影 → 残差相加
              mlp : RMSNorm → gate/up 投影 → SwiGLU → down 投影 → 残差相加
        → final RMSNorm
-       → lm_head(与 embedding 常共享权重)→ logits[N, V]
+       → lm_head(主流大模型独立于 embedding;GPT-2、Gemma、Qwen 小杯等才共享)→ logits[N, V]
        → 取最后一个位置的 logits → 采样 → 第一个生成 token
 ```
 
@@ -43,7 +43,10 @@ EOS 或达到 max_tokens。
 - prefill 时虽然每个位置都会算出 logits,但**只有最后一个位置的被使用**
   (其余位置是训练的产物,推理时白算,但无法避免——它们的 KV 是需要的);
 - 采样前的温度缩放 / top-k / top-p 过滤只作用在这一个位置上
-  (temperature 的数学见 [08-kernel-math.md](08-kernel-math.md) §2、§4)。
+  (temperature 的数学见 [08-kernel-math.md](08-kernel-math.md) §2、§4);
+- lm_head 与 embedding 是否共享(tied):GPT-2 时代和 Gemma、Qwen 小杯等
+  为省参数会共享;主流大模型(Llama、Qwen 大杯、DeepSeek、Kimi-K3)均独立,
+  训练自由度更高、效果更好(Kimi-K3 的配置见 ../kimi-k3.md)。
 
 ## 3. 两个阶段:prefill 与 decode
 
@@ -105,7 +108,7 @@ KV Cache),却只做一个 token 的计算。算一笔账(7B 模型,FP16,权重 1
 - H100 的算力/带宽比 ≈ $989\,\text{TFLOPS} / 3.35\,\text{TB/s} \approx 295$
   FLOP/byte ——算术强度差了近 300 倍,**算力几乎全程闲置,速度完全由带宽决定**;
 - 单请求 decode 的理论上限 ≈ 带宽 / 权重大小 ≈ $3.35\,\text{TB/s} / 14\,\text{GB}
-  \approx 240$ tok/s(还没算 KV Cache 的读取,实际更低);
+  \approx 240 $ tok/s(还没算 KV Cache 的读取,实际更低);
 - 换消费级显卡(4090,带宽约 1 TB/s),上限直接掉到 ~70 tok/s。
 
 prefill 完全不同:$N$ 个 token 并行,同样的权重读一遍算了 $N$ 份,算术强度
@@ -114,7 +117,7 @@ $\approx N$ FLOP/byte——prompt 稍长就超过硬件平衡点,瓶颈在 Tenso
 
 **推论**:单请求 decode 喂不饱 GPU,唯一的出路是让一次权重读取服务更多
 请求——这就是 batching 的根本动机。batch 内 $B$ 个请求共享同一份权重读取,
-算术强度 ×$B$,吞吐近线性提升,直到撞上算力瓶颈或显存瓶颈。生产系统的
+算术强度 × $B$,吞吐近线性提升,直到撞上算力瓶颈或显存瓶颈。生产系统的
 continuous batching 等机制(后续篇章)都是围绕"如何高效凑 batch"展开。
 
 ## 6. KV Cache 的显存账(预告)
