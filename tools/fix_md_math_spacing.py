@@ -103,7 +103,8 @@ def _snippet(body: str, col: int, half: int = 25) -> str:
 def process_file(path: Path, apply: bool) -> list[tuple[int, int, str]]:
     """处理单个文件,返回 [(行号, 列号, 上下文)];apply 为 True 时原地修复。"""
     try:
-        raw_lines = path.read_text(encoding="utf-8", newline="").splitlines(keepends=True)
+        with open(path, encoding="utf-8", newline="") as fh:
+            raw_lines = fh.read().splitlines(keepends=True)
     except UnicodeDecodeError:
         print(f"警告:{path} 不是有效 UTF-8,已跳过", file=sys.stderr)
         return []
@@ -120,7 +121,8 @@ def process_file(path: Path, apply: bool) -> list[tuple[int, int, str]]:
             for col in sorted(cols, reverse=True):  # 从后往前插,列号不失效
                 body = body[:col] + " " + body[col:]
             fixed[ln] = body + raw_lines[ln][len(bodies[ln]):]  # 保留原换行符
-        path.write_text("".join(fixed), encoding="utf-8", newline="")
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write("".join(fixed))
 
     return [(ln, col, _snippet(bodies[ln], col)) for ln, col in positions]
 
