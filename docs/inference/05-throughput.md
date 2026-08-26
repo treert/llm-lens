@@ -132,6 +132,17 @@ causal mask"时标注"Speculative Decoding 除外"的原因。
 - 吞吐优化的主线:**batching 之后,一切围绕"调度"与"KV 复用"**;
 - 单人用户主要受益:speculative decoding(延迟)、prefix caching
   (多轮对话 TTFT);
-- 这些机制都是 vLLM/SGLang 的开箱功能,理解原理的价值在于**会调参**:
-  `max_num_batched_tokens`、`max_num_seqs`、KV 池大小、投机参数,
-  每个都对应本文的某笔账。
+- 这些机制都是 vLLM/SGLang 的开箱功能,理解原理的价值在于**会调参**,
+  每个参数都对应本文的某笔账:
+  - `max_num_batched_tokens`:每次调度迭代处理的 token 总预算
+    (prefill 分块的上限,见第 5 节)。调大→prefill 更快但 decode
+    易卡顿;调小→TPOT 平稳但长 prompt 的 TTFT 变差;
+  - `max_num_seqs`:单次迭代最多同时服务的序列数,即 continuous
+    batching 的并发上限(见第 2 节)。受算力和 KV 池双重约束,
+    调太大会互相拖慢,调太小跑不满算力;
+  - KV 池大小(vLLM 的 `gpu_memory_utilization`):预留给 KV cache
+    的显存比例(见第 3 节 PagedAttention)。池子越大,能同时容纳的
+    序列越多、前缀缓存命中越多;
+  - 投机参数(草稿模型、`num_speculative_tokens` 等):控制每步
+    猜几个 token(见第 6 节)。猜得多→草稿与验证成本上升、接受率
+    摊薄;猜得少→加速比受限,需在两者间取平衡。
