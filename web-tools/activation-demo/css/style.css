@@ -262,6 +262,27 @@ button.need-sample:hover:not(:disabled) {
   width: 64px;
 }
 
+/* 面板三：热力图与切片并排 */
+.glu-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.chart-heat {
+  height: 400px;
+}
+
+.slice-radios {
+  margin: 4px 0;
+}
+
+@media (max-width: 1100px) {
+  .glu-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 模型-激活对照表 */
 .model-table {
   margin: 12px 4px 4px;

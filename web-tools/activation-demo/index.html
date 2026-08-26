@@ -93,6 +93,52 @@
       <p class="chart-note" id="distStats"></p>
       <p class="chart-note" id="distNote"></p>
     </div>
+
+    <div class="chart-wrap">
+      <div class="panel-head">
+        <h2>面板三：GLU 门控族（二维）y = u·g(v)</h2>
+        <div class="op-radios">
+          <label><input type="radio" name="gate" value="swiglu" checked /> SwiGLU</label>
+          <label><input type="radio" name="gate" value="glu" /> GLU(σ)</label>
+          <label><input type="radio" name="gate" value="geglu" /> GEGLU</label>
+          <label><input type="radio" name="gate" value="reglu" /> ReGLU</label>
+        </div>
+      </div>
+      <div class="panel-controls">
+        <label for="sliderRho">相关系数 ρ</label>
+        <input id="sliderRho" type="range" min="-0.95" max="0.95" step="0.05" value="0" />
+        <input id="inputRho" type="number" min="-0.95" max="0.95" step="0.05" value="0" />
+        <label for="sliderSigmaG">方差 σ²</label>
+        <input id="sliderSigmaG" type="range" min="0.1" max="4" step="0.1" value="1" />
+        <input id="inputSigmaG" type="number" min="0.1" max="4" step="any" value="1" />
+        <label for="inputNG">样本量 N</label>
+        <input id="inputNG" type="number" min="10000" max="1000000" step="10000" value="100000" />
+        <button id="btnSampleG" type="button">采样</button>
+        <button id="btnResetG" type="button">重置</button>
+        <span class="radio-hint">(u,v) 联合高斯（LLM 初始化基线 ρ=0）；点击热力图选切片 v₀</span>
+      </div>
+      <div class="glu-row">
+        <div>
+          <div id="chartHeat" class="chart chart-heat"></div>
+          <p class="chart-note">
+            门控地形 z = u·g(v)（蓝负红正）与输入质量的 1/2/3σ 等高线椭圆（随 ρ 旋转扁缩）。
+            <strong>点击</strong>选切片 v₀（紫色虚线）。
+          </p>
+        </div>
+        <div>
+          <div class="op-radios slice-radios">
+            <label><input type="radio" name="sliceMode" value="dist" checked /> 分布切片</label>
+            <label><input type="radio" name="sliceMode" value="surf" /> 曲面切片</label>
+            <button id="btnClearSlices" type="button">清空切片</button>
+          </div>
+          <div id="chartSlice" class="chart chart-heat"></div>
+          <p class="chart-note" id="sliceStats"></p>
+        </div>
+      </div>
+      <div id="chartGlu" class="chart"></div>
+      <p class="chart-note" id="gluStats"></p>
+      <p class="chart-note" id="gluNote"></p>
+    </div>
   </main>
 
   <script src="js/functions.js"></script>
