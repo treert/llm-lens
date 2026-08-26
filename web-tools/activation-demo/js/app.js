@@ -162,13 +162,31 @@
     var grid = ActTheory.densityGrid(act, p, sigma, range.xLo, range.xHi, 800);
     var line = [];
     for (var i = 0; i < grid.ys.length; i++) line.push([grid.ys[i], grid.fs[i]]);
-    var series = [{
+    var series = [];
+    if (state.samples) {
+      // 直方图轮廓：逐箱两点的阶梯折线 + 半透明填充
+      var hist = ActSampler.histogram(state.samples, grid.yLo, grid.yHi, 120);
+      var w = (grid.yHi - grid.yLo) / 120;
+      var outline = [[grid.yLo, 0]];
+      for (var b = 0; b < hist.centers.length; b++) {
+        outline.push([grid.yLo + b * w, hist.density[b]]);
+        outline.push([grid.yLo + (b + 1) * w, hist.density[b]]);
+      }
+      outline.push([grid.yHi, 0]);
+      series.push({
+        name: '蒙特卡洛直方图', type: 'line', data: outline,
+        showSymbol: false, silent: true,
+        lineStyle: { width: 1, color: '#ea580c' },
+        itemStyle: { color: '#ea580c' }, areaStyle: { opacity: 0.25 },
+      });
+    }
+    series.push({
       name: '理论密度', type: 'line', data: line, showSymbol: false,
       lineStyle: { width: 2, color: '#2563eb' }, itemStyle: { color: '#2563eb' },
-    }];
+    });
     var m = ActTheory.outputMoments(act, p, sigma);
     if (act.atom) {
-      series[0].markLine = {
+      series[series.length - 1].markLine = {
         symbol: 'none', silent: true,
         lineStyle: { type: 'dashed', color: '#dc2626' },
         label: { formatter: '点质量 P(y=0)=' + m.atom.toFixed(3) },
@@ -185,10 +203,20 @@
       dataZoom: [{ type: 'inside' }],
       series: series,
     }, true);
-    document.getElementById('distStats').innerHTML =
-      '理论：均值 ' + m.mean.toFixed(4) + '，方差 ' + m.variance.toFixed(4) +
-      (act.atom ? '，点质量 ' + m.atom.toFixed(3) : '') +
-      ' ｜ <span class="stat-dim">样本：未采样（点「采样」叠加直方图）</span>';
+    var stats = '理论：均值 ' + m.mean.toFixed(4) + '，方差 ' + m.variance.toFixed(4) +
+      (act.atom ? '，点质量 ' + m.atom.toFixed(3) : '') + ' ｜ ';
+    if (state.samples) {
+      var mv = ActSampler.sampleMeanVar(state.samples);
+      stats += '样本（N=' + state.samples.length + '）：均值 ' + mv.mean.toFixed(4) +
+        '，方差 ' + mv.variance.toFixed(4);
+      if (act.atom) {
+        stats += '，0 处比例 ' +
+          (ActSampler.countExactZeros(state.samples) / state.samples.length).toFixed(3);
+      }
+    } else {
+      stats += '<span class="stat-dim">样本：未采样（点「采样」叠加直方图）</span>';
+    }
+    document.getElementById('distStats').innerHTML = stats;
     document.getElementById('distNote').textContent = act.distNote;
     updateSampleButton();
   }
@@ -259,11 +287,31 @@
     chartDist.resize();
   });
 
+  function doSample() {
+    var act = ActFns.byId(state.distId);
+    var seed = document.getElementById('chkSeed').checked
+      ? parseInt(document.getElementById('inputSeed').value, 10) || 0
+      : (Math.random() * 2147483647) | 0;
+    var gauss = ActSampler.makeRng(seed);
+    var xs = ActSampler.sampleInput(gauss, state.N, Math.sqrt(state.sigma2));
+    state.samples = ActSampler.applyActivation(act, state.params[act.id], xs);
+    state.sampleKey = currentKey();
+    renderPanel2();
+  }
+
   function boot() {
     buildPanel1Controls();
     buildDistSelect();
     buildParamRows();
     bindGlobal();
+    document.getElementById('btnSample').addEventListener('click', doSample);
+    document.getElementById('btnReset').addEventListener('click', function () {
+      state.samples = null;
+      state.sampleKey = null;
+      renderPanel2();
+    });
+    document.getElementById('chkSeed').addEventListener('change', updateSampleButton);
+    document.getElementById('inputSeed').addEventListener('change', updateSampleButton);
     renderPanel1();
     renderPanel2();
   }
