@@ -2,7 +2,7 @@
 
 交互式网页工具，从**函数形状**与**输出分布**两个视角理解 LLM 常见激活函数。
 
-两个面板：
+三个面板：
 
 1. **函数与导数**：11 个激活函数叠加对比——经典（Sigmoid、Tanh、ReLU、Leaky ReLU、
    ELU、Softplus）与 LLM 现役（GELU 精确/tanh 近似双版本、SiLU/Swish、Mish、ReLU²），
@@ -13,6 +13,11 @@
    （变量替换 + 多原像求和）与蒙特卡洛直方图对照，Gauss–Hermite 理论矩 vs 样本矩。
    ReLU 族展示 $y=0$ 处**点质量**（精确稀疏），GELU/SiLU/Mish 展示非单调极小值处的
    **可积密度奇点**，饱和函数展示质量向两端的堆积。
+3. **GLU 门控族（二维）**： $y=u\cdot g(v)$， $(u,v)$ 为相关系数 $\rho$ 的联合高斯。
+   门控地形热力图（点击选切片 $v_0$）+ 切片视图（条件高斯分布 / 曲面斜率族）+
+   边缘输出分布（梯形积分理论密度 vs 蒙特卡洛）。覆盖 SwiGLU / GLU / GEGLU / ReGLU
+   四门——SwiGLU 在 $y=0$ 处有乘积正态型对数尖峰，ReGLU 有 0.5 点质量，
+   $\mathbb E[y]=\rho\,\mathbb E[v\,g(v)]$ 演示"相关性即门控注意力"。
 
 ## 用法
 
@@ -118,4 +123,47 @@ $$\mathbb E[\mathrm{gelu}(x)]=\sigma^2\int\varphi(x)\,\frac{1}{\sigma}\varphi\!\
 - **Mish**：与 SiLU 形状相似，负半支极小值更浅。
 
 门控变体（SwiGLU、GeGLU 等 $\mathrm{GLU}(x)=(xW)\odot g(xV)$ 双分支结构）
-是二维输入的，可视化方式不同，留作后续面板。
+是二维输入的，见面板三与下一节。
+
+### 6. GLU 门控族： $y = u\cdot g(v)$
+
+现代 LLM 的 FFN 激活不是标量函数而是双分支门控：两个投影
+$u=xW_1$、 $v=xW_2$ 按元素相乘 $u\odot g(v)$。输入建模为相关系数 $\rho$
+的联合高斯（初始化时两投影独立， $\rho=0$ 是随机基线； $u$、 $v$ 各自方差 $\sigma^2$）。
+
+**条件分布是精确高斯**： $u\mid v\sim\mathcal N(\rho v,\ \sigma^2(1-\rho^2))$，故
+
+$$y\mid v_0 \sim \mathcal N\bigl(\rho v_0\,g(v_0),\ \sigma^2(1-\rho^2)\,g(v_0)^2\bigr)$$
+
+边缘分布就是各 $v$ 切片高斯的加权混合（面板三「分布切片」可视）：
+
+$$f_Y(y)=\int \varphi(v;\sigma)\,\frac{1}{|g(v)|}\,
+\varphi\!\left(\frac{y}{g(v)}-\rho v;\ \sigma^2(1-\rho^2)\right)dv$$
+
+实现上（`theory.js`）对 $v$ 做梯形积分（2001 箱中点法）：被积函数在 ReGLU
+门等处有尖峰（峰值在 $v\approx y$），GH 求积收敛差，梯形精度 $\sim 10^{-8}$
+（与 ReGLU 的 $K_0$ 闭式对照验证）。
+
+**矩一维化**（64 点 GH 足够光滑）：
+
+$$\mathbb E[y]=\rho\,\mathbb E[v\,g(v)],\qquad
+\mathbb E[y^2]=\mathbb E\bigl[g(v)^2\,(\sigma^2(1-\rho^2)+\rho^2v^2)\bigr]$$
+
+第一式是面板三的主角：**输出均值的方向完全由 $\rho$ 的符号决定**——
+正相关时"门开（ $v$ 大）信号（ $u$ ）也大"，输出均值漂正；负相关压负。
+初始化基线 $\rho=0$ 均值恒 0；训练学出的投影相关，就是门控的"注意力"。
+
+**四个门的分布形态**（ $\rho=0$）：
+
+- **SwiGLU**： $v\approx 0$ 时 $g(v)\approx v/2$， $y\approx u\cdot v/2$ 趋近乘积正态——
+  $y=0$ 处有 Bessel-$K_0$ 型**对数尖峰**（可积，与 noise-ops-demo 呼应），无点质量；
+- **ReGLU**： $v\le 0$ 门关闭， $y\equiv 0$ → **0.5 点质量**（与 ReLU 面板呼应），
+  且 $\rho=0$ 时 $y>0$ 支有闭式 $f(y)=K_0(y/\sigma^2)/(2\pi\sigma^2)$（自检校验）；
+- **GLU(σ)**：门恒正，输出符号跟随 $u$，分布在 $y=0$ 附近平滑；
+- **GEGLU**：介于 SwiGLU 与 GLU 之间，负 $v$ 门近似关但不严格为 0。
+
+**门控地形热力图**： $z=u\cdot g(v)$ 发散色（蓝负红正）+ 联合高斯 1/2/3σ
+等高线椭圆（参数式 $u=k\sigma\cos t,\ v=k\sigma(\rho\cos t+\sqrt{1-\rho^2}\sin t)$，
+$\rho$ 控制旋转扁缩）。SwiGLU 的地形一目了然：上半平面门开（ $z$ 随 $u$ 渐变），
+下半平面门关（ $z\approx 0$ 全白）——等高线椭圆的质心落在哪个区域，
+决定了输出分布的形态。

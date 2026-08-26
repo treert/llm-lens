@@ -139,3 +139,52 @@ $$\mathbb E[g(x)]\approx\frac{1}{\sqrt\pi}\sum_i w_i\,g\bigl(\sigma\sqrt2\,t_i\b
 - 根目录 `index.html` 工具列表加卡片（标签建议：激活函数 / 分布视角 / 理论对照）；
 - markdown 行内公式空格遵守仓库规范（`$` 前为文字或全角标点需加空格），
   写完跑 `python tools/fix_md_math_spacing.py` 检查。
+
+---
+
+## 10. 补充设计：面板三 GLU 门控族（2026-08-26 用户批准，视图组合=热力图+分布+切片联动）
+
+### 10.1 数学框架
+
+门控输出 $y=u\cdot g(v)$： $u$ 被门控支， $g(v)$ 门支。输入建模为相关系数 $\rho$
+的联合高斯（LLM 初始化基线 $\rho=0$）， $u,v$ 各自方差均为 $\sigma^2$。
+由 $u\mid v\sim\mathcal N(\rho v,\ \sigma^2(1-\rho^2))$：
+
+$$f_Y(y)=\int \varphi(v;\sigma)\,\frac{1}{|g(v)|}\,
+\varphi\!\left(\frac{y}{g(v)};\ \rho v,\ \sigma^2(1-\rho^2)\right)dv$$
+
+（对 $v$ 一维 Gauss–Hermite 求积即得精确理论密度。）
+
+矩一维化： $\mathbb E[y]=\rho\,\mathbb E[v\,g(v)]$，
+$\mathbb E[y^2]=\mathbb E[g(v)^2(\sigma^2(1-\rho^2)+\rho^2v^2)]$。
+
+**条件分布切片**： $y\mid v_0$ 恰为精确高斯
+$\mathcal N\bigl(\rho v_0 g(v_0),\ \sigma^2(1-\rho^2)g(v_0)^2\bigr)$——
+边缘分布 = 各 $v$ 切片高斯的加权混合。
+
+**门函数四个**（复用注册表条目）：SwiGLU(silu，默认) / GLU(sigmoid) / GEGLU(gelu-exact) / ReGLU(relu)。
+ReGLU 有 0.5 点质量（ $v\le 0$ 门关闭 $y\equiv0$）；SwiGLU 在 $\rho=0$ 时
+$y=0$ 处有乘积正态型对数尖峰（Bessel-K，可积），自检用 ReGLU $\rho=0$、 $y>0$
+的闭式 $f(y)=K_0(y/\sigma^2)/(2\pi\sigma^2)$ 校验（复用 noise-ops-demo 的 logBesselK）。
+
+### 10.2 布局与交互
+
+- **A 门控地形热力图**（左）： $[-4\sigma,4\sigma]^2$ 网格热力 $z=u\cdot g(v)$
+  （发散色负蓝正红），叠加 1/2/3σ 联合高斯等高线椭圆
+  （参数式 $u=k\sigma\cos t,\ v=k\sigma(\rho\cos t+\sqrt{1-\rho^2}\sin t)$）；
+  点击取 $v_0$ 并画水平虚线。
+- **B 切片视图**（右，与热力图并排）：两种模式切换——
+  「分布切片」灰底边缘密度 + 彩色条件高斯（ $g(v_0)\approx0$ 时提示门关闭）；
+  「曲面切片」 $y=u\cdot g(v_0)$ 直线族（多次点击累积，可清空）。
+- **C 输出分布图**（通栏）：理论密度 + 采样直方图 + 统计行，
+  交互与面板二一致（ $\rho$ 滑块 −0.95~0.95 默认 0、 $\sigma^2$ 、 $N$ 、采样/重置、种子共享）。
+
+### 10.3 实现拆解（8 任务，TDD + 逐步提交）
+
+1. `functions.js` 加 `ActFns.gates` 注册；2. `sampler.js` 加 `sampleBivariate`/`applyGate`；
+3. `theory.js` 加 GLU 段（`gluOutputDensity`/`gluOutputMoments`/`gluConditional`/`gluBinMass`/`gaussEllipse`）；
+4. 面板三 HTML/CSS（热力图+切片并排、分布通栏）；5. 热力图+等高线+点击；
+6. 切片双模式；7. 边缘分布+采样统计；8. README/根卡片更新。
+
+自检新增：GLU 矩 vs MC（ $\rho\in\{-0.5,0,0.7\}\times$ 4 门）、条件分布矩 vs 条件采样、
+ReGLU $K_0$ 闭式、区间质量 vs MC、椭圆参数式校验。
