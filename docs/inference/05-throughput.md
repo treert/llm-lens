@@ -42,7 +42,7 @@ varlen 接口与 Flash-Decoding 存在的原因([10-flashattention.md](10-flasha
 "最大长度"预分配连续显存,碎片与预留浪费可达 60%+。vLLM 的
 PagedAttention 借鉴操作系统虚拟内存:
 
-- KV 按固定大小的**页(block,如 16 个 token)**分配,页在显存中
+- KV 按固定大小的 **页(block,如 16 个 token)** 分配,页在显存中
   不必连续;
 - 每个请求维护一张 **block table**(页表),kernel 顺着页表指针把离散页
   gather 进 SRAM 计算;
