@@ -173,5 +173,19 @@ console.log('== theory.js ==');
   });
 })();
 
+console.log('== gates 注册表 ==');
+(function () {
+  check('4 个门', ActFns.gates.length === 4);
+  ['swiglu', 'glu', 'geglu', 'reglu'].forEach(function (id) {
+    var g = ActFns.gateById(id);
+    check('gateById(' + id + ')', g && g.id === id);
+    check(id + ' 门函数条目存在', !!ActFns.gateAct(g));
+  });
+  check('reglu 有 atom', ActFns.gateById('reglu').atom === true);
+  check('swiglu/glu/geglu 无 atom',
+    !ActFns.gateById('swiglu').atom && !ActFns.gateById('glu').atom && !ActFns.gateById('geglu').atom);
+  check('swiglu 门是 silu', ActFns.gateAct(ActFns.gateById('swiglu')).id === 'silu');
+})();
+
 console.log(failures === 0 ? '\n全部通过' : '\n失败 ' + failures + ' 项');
 process.exit(failures === 0 ? 0 : 1);

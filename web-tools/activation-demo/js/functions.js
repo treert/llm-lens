@@ -141,6 +141,37 @@
     return undefined;
   }
 
+  /**
+   * GLU 门控族注册表（面板三）：y = u·g(v)，gateId 引用上面的标量条目。
+   * atom=true 表示门在 v≤0 时严格为 0（输出有 y=0 点质量）。
+   */
+  var gates = [
+    {
+      id: 'swiglu', name: 'SwiGLU', gateId: 'silu', atom: false,
+      note: 'y = u·silu(v)。LLaMA/Qwen/Kimi 的 FFN 门控。ρ=0 时 y≈u·v/2，y=0 处有乘积正态型对数尖峰（可积）；E[y]=ρ·E[v·silu(v)]——相关性的符号决定输出均值方向。',
+    },
+    {
+      id: 'glu', name: 'GLU(σ)', gateId: 'sigmoid', atom: false,
+      note: 'y = u·σ(v)，原始 GLU（Dauphin et al. 2016）。门恒正，输出符号跟随 u。',
+    },
+    {
+      id: 'geglu', name: 'GEGLU', gateId: 'gelu-exact', atom: false,
+      note: 'y = u·gelu(v)，Gemma 在用。门比 sigmoid 更"软"：v 为负时门近似关闭但不严格为 0。',
+    },
+    {
+      id: 'reglu', name: 'ReGLU', gateId: 'relu', atom: true,
+      note: 'y = u·relu(v)。v≤0 门关闭 → y=0 处有 0.5 点质量（与面板二 ReLU 呼应）；ρ=0 时 y>0 支有 Bessel-K₀ 闭式密度。',
+    },
+  ];
+
+  function gateById(id) {
+    for (var i = 0; i < gates.length; i++) if (gates[i].id === id) return gates[i];
+    return undefined;
+  }
+
+  /** 门控条目 → 门函数标量条目本身 */
+  function gateAct(gate) { return byId(gate.gateId); }
+
   function defaultParams(act) {
     var p = {};
     act.params.forEach(function (spec) { p[spec.key] = spec.def; });
@@ -151,6 +182,9 @@
     list: list,
     byId: byId,
     defaultParams: defaultParams,
+    gates: gates,
+    gateById: gateById,
+    gateAct: gateAct,
     helpers: { sigmoid: sigmoid, softplus: softplus, erf: erf, normPdf: normPdf, normCdf: normCdf },
   };
 
