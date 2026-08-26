@@ -19,6 +19,7 @@ function approxRel(name, a, b, relTol) {
 }
 
 var ActFns = require('../js/functions.js');
+var ActSampler = require('../js/sampler.js');
 
 console.log('== functions.js ==');
 check('注册 11 个函数', ActFns.list.length === 11);
@@ -50,6 +51,26 @@ ActFns.list.forEach(function (act) {
   }
   check('dfn 与数值差分一致: ' + act.id, bad === 0);
 });
+
+console.log('== sampler.js ==');
+(function () {
+  var xs = ActSampler.sampleInput(ActSampler.makeRng(42), 100000, 1);
+  var mv = ActSampler.sampleMeanVar(xs);
+  approx('N(0,1) 样本均值≈0', mv.mean, 0, 0.02);
+  approx('N(0,1) 样本方差≈1', mv.variance, 1, 0.02);
+
+  var ys = ActSampler.applyActivation(ActFns.byId('relu'), {}, xs);
+  approx('ReLU 后 0 的比例≈0.5', ActSampler.countExactZeros(ys) / ys.length, 0.5, 0.01);
+
+  var h = ActSampler.histogram(xs, -4, 4, 80);
+  var w = 8 / 80, area = 0;
+  for (var i = 0; i < h.density.length; i++) area += h.density[i] * w;
+  approx('直方图密度积分+越界≈1', area + (h.under + h.over) / xs.length, 1, 1e-12);
+
+  approx('同种子可复现',
+    ActSampler.sampleInput(ActSampler.makeRng(42), 10, 1)[5],
+    ActSampler.sampleInput(ActSampler.makeRng(42), 10, 1)[5], 0);
+})();
 
 console.log(failures === 0 ? '\n全部通过' : '\n失败 ' + failures + ' 项');
 process.exit(failures === 0 ? 0 : 1);
