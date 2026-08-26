@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>激活函数：曲线、导数与噪音分布</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <h1>LLM 激活函数：曲线、导数与噪音分布</h1>
+    </div>
+    <p class="subtitle">
+      现代 LLM 的非线性全在这几个函数里。面板一对比函数与导数形状；面板二把高斯噪音灌进去看输出分布——
+      <strong class="legend-note note-blue">ReLU 把一半质量压成 0 处的点质量（精确稀疏）</strong>，
+      <strong class="legend-note note-orange">GELU/SiLU 非单调，极小值处密度出现可积奇点</strong>，
+      <strong class="legend-note note-red">饱和函数把质量挤向两端</strong>。
+    </p>
+  </header>
+
+  <section class="controls">
+    <div class="control control-mc">
+      <label for="chkSeed">
+        <input id="chkSeed" type="checkbox" checked />
+        固定种子
+      </label>
+      <input id="inputSeed" type="number" value="42" step="1" />
+    </div>
+    <span class="controls-hint">
+      理论曲线随参数即时更新；蒙特卡洛不自动采样——点面板二的「采样」叠加直方图（参数变更后按钮高亮提示重新采样）
+    </span>
+  </section>
+
+  <main>
+    <div class="chart-wrap">
+      <div class="panel-head">
+        <h2>面板一：函数与导数</h2>
+        <div class="op-radios">
+          <label><input type="radio" name="p1view" value="fn" checked /> 只看函数</label>
+          <label><input type="radio" name="p1view" value="dfn" /> 只看导数</label>
+          <label><input type="radio" name="p1view" value="both" /> 双图联动</label>
+        </div>
+      </div>
+      <div class="panel-controls">
+        <div id="fnChecks" class="fn-checks"></div>
+        <label for="sliderX">x 范围 ±</label>
+        <input id="sliderX" type="range" min="1" max="10" step="0.5" value="5" />
+        <input id="inputX" type="number" min="1" max="10" step="0.5" value="5" />
+      </div>
+      <div id="paramSliders1" class="panel-controls param-row"></div>
+      <div id="chartFn" class="chart"></div>
+      <div id="chartDfn" class="chart" style="display:none"></div>
+      <p class="chart-note">
+        勾选函数叠加对比；带参数的函数（Leaky ReLU 的 α、ELU 的 α、SiLU 的 β）在参数行调节。
+        导数图直观看：sigmoid/tanh 两端梯度→0（饱和）、ReLU 负半轴梯度恒 0（死区）、GELU/SiLU 负半轴有一段平缓的"软死区"。
+      </p>
+      <table class="model-table">
+        <thead>
+          <tr><th>模型</th><th>FFN 激活</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>GPT-2 / GPT-3</td><td>GELU（tanh 近似）</td><td>OpenAI 系惯例</td></tr>
+          <tr><td>BERT</td><td>GELU（精确）</td><td></td></tr>
+          <tr><td>LLaMA / Qwen / Kimi-K3</td><td>SwiGLU</td><td>门控变体（双分支相乘），后续面板覆盖</td></tr>
+          <tr><td>Gemma</td><td>GeGLU</td><td>门控变体，后续面板覆盖</td></tr>
+          <tr><td>早期 MLP / CNN</td><td>ReLU / Tanh</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="panel-head">
+        <h2>面板二：噪音过激活的分布</h2>
+        <div class="op-radios">
+          <label for="selDist">激活函数</label>
+          <select id="selDist"></select>
+        </div>
+      </div>
+      <div class="panel-controls">
+        <label for="sliderSigma">输入方差 σ²</label>
+        <input id="sliderSigma" type="range" min="0.1" max="10" step="0.1" value="1" />
+        <input id="inputSigma" type="number" min="0.1" max="10" step="any" value="1" />
+        <label for="inputN2">样本量 N</label>
+        <input id="inputN2" type="number" min="10000" max="1000000" step="10000" value="100000" />
+        <button id="btnSample" type="button">采样</button>
+        <button id="btnReset" type="button">重置</button>
+        <span class="radio-hint">输入 x ~ N(0, σ²)，看 y = f(x) 的分布</span>
+      </div>
+      <div id="paramSliders2" class="panel-controls param-row"></div>
+      <div id="chartDist" class="chart"></div>
+      <p class="chart-note" id="distStats"></p>
+      <p class="chart-note" id="distNote"></p>
+    </div>
+  </main>
+
+  <script src="js/functions.js"></script>
+  <script src="js/theory.js"></script>
+  <script src="js/sampler.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
