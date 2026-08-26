@@ -208,5 +208,81 @@ console.log('== sampler.js GLU ==');
   approx('relu 门 y=0 比例≈0.5', ActSampler.countExactZeros(y) / N, 0.5, 0.01);
 })();
 
+console.log('== theory.js GLU ==');
+(function () {
+  var NoiseTheory = require('../../noise-ops-demo/js/theory.js');
+  var NG = 200000;
+
+  // 矩 vs MC：ρ ∈ {-0.5, 0, 0.7} × 4 门
+  [-0.5, 0, 0.7].forEach(function (rho) {
+    ActFns.gates.forEach(function (gate) {
+      var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+      var bv = ActSampler.sampleBivariate(ActSampler.makeRng(7), NG, 1, rho);
+      var ys = ActSampler.applyGate(g, gp, bv.u, bv.v);
+      var mv = ActSampler.sampleMeanVar(ys);
+      var mt = ActTheory.gluOutputMoments(gate, rho, 1);
+      approx(gate.id + ' ρ=' + rho + ' 理论均值 vs MC', mt.mean, mv.mean, 0.02);
+      approxRel(gate.id + ' ρ=' + rho + ' 理论方差 vs MC', mt.variance, mv.variance, 0.05);
+      if (gate.atom) approx(gate.id + ' atom=0.5', mt.atom, 0.5, 1e-15);
+    });
+  });
+
+  // 条件分布：swiglu ρ=0.6 v0=1.3，|v−v0|<0.02 的 MC 条件样本
+  (function () {
+    var gate = ActFns.gateById('swiglu');
+    var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+    var bv = ActSampler.sampleBivariate(ActSampler.makeRng(5), 400000, 1, 0.6);
+    var ys = ActSampler.applyGate(g, gp, bv.u, bv.v);
+    var sel = [];
+    for (var i = 0; i < ys.length; i++) if (Math.abs(bv.v[i] - 1.3) < 0.02) sel.push(ys[i]);
+    check('条件样本量充足（>800）', sel.length > 800);
+    var mv = ActSampler.sampleMeanVar(Float64Array.from(sel));
+    var cond = ActTheory.gluConditional(gate, 0.6, 1, 1.3);
+    approxRel('条件均值 vs MC', cond.mean, mv.mean, 0.05);
+    approxRel('条件 SD vs MC', cond.sd, Math.sqrt(mv.variance), 0.05);
+  })();
+
+  // ReGLU ρ=0 闭式：y>0 时 f(y) = K₀(y)/(2π)（σ=1）
+  var reglu = ActFns.gateById('reglu');
+  [0.5, 1, 2].forEach(function (y) {
+    var closed = Math.exp(NoiseTheory.logBesselK(0, y)) / (2 * Math.PI);
+    approxRel('ReGLU ρ=0 K₀ 闭式 y=' + y, ActTheory.gluOutputDensity(reglu, 0, 1, y), closed, 1e-4);
+  });
+
+  // gluBinMass：30 个等宽 bin（±6）理论质量+atom vs MC；总质量≈1
+  ActFns.gates.forEach(function (gate) {
+    var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+    var rho = 0.3;
+    var bv = ActSampler.sampleBivariate(ActSampler.makeRng(7), NG, 1, rho);
+    var ys = ActSampler.applyGate(g, gp, bv.u, bv.v);
+    var NB = 30, bw = 12 / NB, total = 0, badBins = 0;
+    // 统一用 floor((y+6)/bw) 定位 bin（理论与 MC 同规则，atom 必然同 bin）
+    var hist = ActSampler.histogram(ys, -6, 6, NB);
+    var atomBin = Math.min(NB - 1, Math.max(0, Math.floor(6 / bw)));
+    for (var b = 0; b < NB; b++) {
+      var y1 = -6 + b * bw, y2 = y1 + bw;
+      var mass = ActTheory.gluBinMass(gate, rho, 1, y1, y2);
+      if (gate.atom && b === atomBin) mass += 0.5;
+      total += mass;
+      var tolB = Math.max(0.006, 6 * Math.sqrt(Math.max(mass, 1e-6) * (1 - mass) / NG));
+      if (Math.abs(mass - hist.density[b] * bw) > tolB) badBins++;
+    }
+    check(gate.id + ' 各 bin 理论质量 vs MC', badBins === 0);
+    approx(gate.id + ' 总质量≈1', total, 1, 3e-3);
+  });
+
+  // gaussEllipse：逐点满足 Mahalanobis 距离 = k²σ²(1−ρ²)
+  (function () {
+    var rho = 0.6, sigma = 1.5, k = 2;
+    var pts = ActTheory.gaussEllipse(rho, sigma, k, 50);
+    var target = k * k * sigma * sigma * (1 - rho * rho), bad = 0;
+    pts.forEach(function (pt) {
+      var lhs = pt[0] * pt[0] - 2 * rho * pt[0] * pt[1] + pt[1] * pt[1];
+      if (Math.abs(lhs - target) / target > 1e-12) bad++;
+    });
+    check('椭圆点满足等高线方程', bad === 0);
+  })();
+})();
+
 console.log(failures === 0 ? '\n全部通过' : '\n失败 ' + failures + ' 项');
 process.exit(failures === 0 ? 0 : 1);

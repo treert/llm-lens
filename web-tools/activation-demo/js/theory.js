@@ -174,6 +174,78 @@
     return { xLo: xLo, xHi: xHi, yLo: yLo - pad, yHi: yHi + pad };
   }
 
+  /* ---------- GLU 门控族：y = u·g(v)，(u,v) 联合高斯相关 ρ ---------- */
+
+  /** GLU 输出矩：E[y]=ρE[v·g(v)]，E[y²]=E[g(v)²(σ²(1−ρ²)+ρ²v²)]，一维 GH */
+  function gluOutputMoments(gate, rho, sigma) {
+    var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+    var gh = gh64(), t = sigma * Math.SQRT2, m1 = 0, m2 = 0;
+    for (var i = 0; i < gh.x.length; i++) {
+      var v = t * gh.x[i], gv = g.fn(v, gp);
+      m1 += gh.w[i] * v * gv;
+      m2 += gh.w[i] * gv * gv * (sigma * sigma * (1 - rho * rho) + rho * rho * v * v);
+    }
+    m1 = rho * m1 / Math.sqrt(Math.PI);
+    m2 /= Math.sqrt(Math.PI);
+    return { mean: m1, variance: Math.max(0, m2 - m1 * m1), atom: gate.atom ? 0.5 : 0 };
+  }
+
+  /** 条件分布 y|v0 ~ N(ρv0·g(v0), σ²(1−ρ²)g(v0)²)（精确高斯） */
+  function gluConditional(gate, rho, sigma, v0) {
+    var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+    var gv = g.fn(v0, gp);
+    return {
+      gv: gv,
+      mean: rho * v0 * gv,
+      sd: sigma * Math.sqrt(1 - rho * rho) * Math.abs(gv),
+    };
+  }
+
+  /**
+   * 边缘密度：f_Y(y) = ∫ φ(v;σ)·φ(y/g(v) − ρv; s)/|g(v)| dv，s = σ√(1−ρ²)。
+   * 用 v 空间梯形积分（2001 箱中点法，±10σ）——被积函数在 relu 门等处
+   * 有尖峰，GH 求积收敛差，梯形（光滑快衰）精度 ~1e-8。
+   */
+  function gluOutputDensity(gate, rho, sigma, y) {
+    var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+    var s = sigma * Math.sqrt(1 - rho * rho);
+    var nv = 2001, vmax = 10 * sigma, dv = 2 * vmax / nv, sum = 0;
+    for (var i = 0; i < nv; i++) {
+      var v = -vmax + (i + 0.5) * dv;
+      var gv = g.fn(v, gp);
+      if (gv === 0) continue; // 门关闭支只对 atom 有贡献
+      sum += ActFns.helpers.normPdf(v, sigma)
+        * ActFns.helpers.normPdf(y / gv - rho * v, s) / Math.abs(gv);
+    }
+    return sum * dv;
+  }
+
+  /** 区间质量：E_v[ |Φ(y2/g(v)−ρv; s) − Φ(y1/g(v)−ρv; s)| ]，精确一维 GH（不含 atom） */
+  function gluBinMass(gate, rho, sigma, y1, y2) {
+    var g = ActFns.gateAct(gate), gp = ActFns.defaultParams(g);
+    var gh = gh64(), t = sigma * Math.SQRT2;
+    var s = sigma * Math.sqrt(1 - rho * rho), sum = 0;
+    for (var i = 0; i < gh.x.length; i++) {
+      var v = t * gh.x[i], gv = g.fn(v, gp);
+      if (gv === 0) continue;
+      sum += gh.w[i] * Math.abs(
+        ActFns.helpers.normCdf(y2 / gv - rho * v, s) -
+        ActFns.helpers.normCdf(y1 / gv - rho * v, s));
+    }
+    return sum / Math.sqrt(Math.PI);
+  }
+
+  /** 联合高斯等高线椭圆：u=kσ·cos t，v=kσ(ρ cos t + √(1−ρ²) sin t) */
+  function gaussEllipse(rho, sigma, k, nPts) {
+    var pts = [], s = Math.sqrt(1 - rho * rho);
+    for (var i = 0; i <= nPts; i++) {
+      var t = 2 * Math.PI * i / nPts;
+      pts.push([k * sigma * Math.cos(t),
+        k * sigma * (rho * Math.cos(t) + s * Math.sin(t))]);
+    }
+    return pts;
+  }
+
   var ActTheory = {
     gaussHermite: gaussHermite,
     findCriticalPoints: findCriticalPoints,
@@ -183,6 +255,11 @@
     densityGrid: densityGrid,
     outputMoments: outputMoments,
     suggestRange: suggestRange,
+    gluOutputMoments: gluOutputMoments,
+    gluConditional: gluConditional,
+    gluOutputDensity: gluOutputDensity,
+    gluBinMass: gluBinMass,
+    gaussEllipse: gaussEllipse,
   };
 
   global.ActTheory = ActTheory;
