@@ -187,5 +187,26 @@ console.log('== gates 注册表 ==');
   check('swiglu 门是 silu', ActFns.gateAct(ActFns.gateById('swiglu')).id === 'silu');
 })();
 
+console.log('== sampler.js GLU ==');
+(function () {
+  var N = 200000;
+  var bv = ActSampler.sampleBivariate(ActSampler.makeRng(11), N, 1, 0.7);
+  var mvU = ActSampler.sampleMeanVar(bv.u), mvV = ActSampler.sampleMeanVar(bv.v);
+  approx('u 边缘方差≈1', mvU.variance, 1, 0.02);
+  approx('v 边缘方差≈1', mvV.variance, 1, 0.02);
+  var cov = 0, i;
+  for (i = 0; i < N; i++) cov += (bv.u[i] - mvU.mean) * (bv.v[i] - mvV.mean);
+  cov /= (N - 1);
+  approx('样本协方差≈ρ=0.7', cov, 0.7, 0.01);
+
+  // applyGate：relu 门在 v<0 时输出恒 0
+  var relu = ActFns.byId('relu');
+  var y = ActSampler.applyGate(relu, {}, bv.u, bv.v);
+  var bad = 0;
+  for (i = 0; i < N; i++) if (bv.v[i] < 0 && y[i] !== 0) bad++;
+  check('relu 门 v<0 输出恒 0', bad === 0);
+  approx('relu 门 y=0 比例≈0.5', ActSampler.countExactZeros(y) / N, 0.5, 0.01);
+})();
+
 console.log(failures === 0 ? '\n全部通过' : '\n失败 ' + failures + ' 项');
 process.exit(failures === 0 ? 0 : 1);

@@ -94,6 +94,25 @@
     return { mean: mean, variance: v / (n - 1) };
   }
 
+  /** 相关双变量高斯：v=σz1，u=σ(ρz1+√(1−ρ²)z2)（GLU 门控面板的输入） */
+  function sampleBivariate(gauss, N, sigma, rho) {
+    var u = new Float64Array(N), v = new Float64Array(N);
+    var s = Math.sqrt(1 - rho * rho);
+    for (var i = 0; i < N; i++) {
+      var z1 = gauss(), z2 = gauss();
+      v[i] = sigma * z1;
+      u[i] = sigma * (rho * z1 + s * z2);
+    }
+    return { u: u, v: v };
+  }
+
+  /** 门控输出：y[i] = u[i] · g(v[i])（gact 为门函数条目，gp 为其参数） */
+  function applyGate(gact, gp, u, v) {
+    var y = new Float64Array(u.length);
+    for (var i = 0; i < u.length; i++) y[i] = u[i] * gact.fn(v[i], gp);
+    return y;
+  }
+
   /** 恰好等于 0 的样本数（ReLU 族 y=0 点质量的实测） */
   function countExactZeros(samples) {
     var c = 0;
@@ -105,6 +124,8 @@
     makeRng: makeRng,
     sampleInput: sampleInput,
     applyActivation: applyActivation,
+    sampleBivariate: sampleBivariate,
+    applyGate: applyGate,
     histogram: histogram,
     sampleMeanVar: sampleMeanVar,
     countExactZeros: countExactZeros,
