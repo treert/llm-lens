@@ -90,10 +90,11 @@
   function panel1Option(deriv) {
     return {
       animation: false,
-      grid: { left: 56, right: 20, top: 36, bottom: 48 },
+      grid: { left: 56, right: 20, top: 36, bottom: 52 },
       legend: { top: 0 },
       tooltip: tipOpt('cross'),
-      xAxis: { type: 'value', name: 'x', min: -state.xRange, max: state.xRange },
+      xAxis: { type: 'value', name: 'x', nameLocation: 'middle', nameGap: 30,
+        min: -state.xRange, max: state.xRange, axisLine: { onZero: false } },
       yAxis: { type: 'value', name: deriv ? "f'(x)" : 'f(x)', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: selectedActs().map(function (a) { return curveSeries(a, deriv); }),
@@ -252,10 +253,11 @@
     };
     chartDist.setOption({
       animation: false,
-      grid: { left: 56, right: 20, top: 36, bottom: 48 },
+      grid: { left: 56, right: 20, top: 36, bottom: 52 },
       legend: { top: 0 },
       tooltip: tipOpt(),
-      xAxis: { type: 'value', name: 'y', min: grid.yLo, max: grid.yHi, axisLabel: axisLbl() },
+      xAxis: { type: 'value', name: 'y', nameLocation: 'middle', nameGap: 30,
+        min: grid.yLo, max: grid.yHi, axisLabel: axisLbl() },
       yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: series,
@@ -430,9 +432,11 @@
     };
     chartHeat.setOption({
       animation: false,
-      grid: { left: 56, right: 20, top: 30, bottom: 48 },
-      xAxis: { type: 'value', name: 'u', min: -R, max: R, axisLabel: axisLbl() },
-      yAxis: { type: 'value', name: 'v', min: -R, max: R, axisLabel: axisLbl() },
+      grid: { left: 64, right: 20, top: 30, bottom: 52 },
+      xAxis: { type: 'value', name: 'u', nameLocation: 'middle', nameGap: 30,
+        min: -R, max: R, axisLabel: axisLbl(), axisLine: { onZero: false } },
+      yAxis: { type: 'value', name: 'v', nameLocation: 'middle', nameRotate: 90, nameGap: 44,
+        min: -R, max: R, axisLabel: axisLbl(), axisLine: { onZero: false } },
       series: series,
     }, true);
   }
@@ -460,10 +464,11 @@
       });
       chartSlice.setOption({
         animation: false,
-        grid: { left: 56, right: 20, top: 36, bottom: 48 },
+        grid: { left: 56, right: 20, top: 36, bottom: 52 },
         legend: { top: 0, type: 'scroll' },
         tooltip: tipOpt(),
-        xAxis: { type: 'value', name: 'u', min: -R, max: R, axisLabel: axisLbl() },
+        xAxis: { type: 'value', name: 'u', nameLocation: 'middle', nameGap: 30,
+          min: -R, max: R, axisLabel: axisLbl(), axisLine: { onZero: false } },
         yAxis: { type: 'value', name: 'y = u·g(v₀)', scale: true, axisLine: { onZero: false }, axisLabel: axisLbl() },
         series: series,
       }, true);
@@ -500,10 +505,10 @@
     }
     chartSlice.setOption({
       animation: false,
-      grid: { left: 56, right: 20, top: 36, bottom: 48 },
+      grid: { left: 56, right: 20, top: 36, bottom: 52 },
       legend: { top: 0 },
       tooltip: tipOpt(),
-      xAxis: { type: 'value', name: 'y', min: marg.yLo, max: marg.yHi },
+      xAxis: { type: 'value', name: 'y', nameLocation: 'middle', nameGap: 30, min: marg.yLo, max: marg.yHi },
       yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       series: series,
     }, true);
@@ -556,10 +561,10 @@
     }
     chartGlu.setOption({
       animation: false,
-      grid: { left: 56, right: 20, top: 36, bottom: 48 },
+      grid: { left: 56, right: 20, top: 36, bottom: 52 },
       legend: { top: 0 },
       tooltip: tipOpt(),
-      xAxis: { type: 'value', name: 'y', min: marg.yLo, max: marg.yHi },
+      xAxis: { type: 'value', name: 'y', nameLocation: 'middle', nameGap: 30, min: marg.yLo, max: marg.yHi },
       yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: series,
