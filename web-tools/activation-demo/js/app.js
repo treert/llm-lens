@@ -53,6 +53,23 @@
     return Math.min(hi, Math.max(lo, v));
   }
 
+  /** 统一 tooltip：轴指示标签与数值截断小数位，避免全精度浮点刷屏（ECharts 要求返回字符串） */
+  function tipOpt(pointerType) {
+    return {
+      trigger: 'axis',
+      valueFormatter: function (v) { return String(parseFloat(v.toFixed(4))); },
+      axisPointer: {
+        type: pointerType || 'line',
+        label: { formatter: function (p) { return String(parseFloat(p.value.toFixed(3))); } },
+      },
+    };
+  }
+
+  /** 坐标轴标签统一截断 2 位小数（min/max 设为浮点余量时端点标签会显示全精度） */
+  function axisLbl() {
+    return { formatter: function (v) { return String(parseFloat(v.toFixed(2))); } };
+  }
+
   /* ---------- 面板一 ---------- */
 
   function curveSeries(act, deriv) {
@@ -75,7 +92,7 @@
       animation: false,
       grid: { left: 56, right: 20, top: 36, bottom: 48 },
       legend: { top: 0 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      tooltip: tipOpt('cross'),
       xAxis: { type: 'value', name: 'x', min: -state.xRange, max: state.xRange },
       yAxis: { type: 'value', name: deriv ? "f'(x)" : 'f(x)', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
@@ -207,8 +224,8 @@
       animation: false,
       grid: { left: 56, right: 20, top: 36, bottom: 48 },
       legend: { top: 0 },
-      tooltip: { trigger: 'axis' },
-      xAxis: { type: 'value', name: 'y', min: grid.yLo, max: grid.yHi },
+      tooltip: tipOpt(),
+      xAxis: { type: 'value', name: 'y', min: grid.yLo, max: grid.yHi, axisLabel: axisLbl() },
       yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: series,
@@ -383,8 +400,8 @@
     chartHeat.setOption({
       animation: false,
       grid: { left: 56, right: 20, top: 30, bottom: 48 },
-      xAxis: { type: 'value', name: 'u', min: -R, max: R },
-      yAxis: { type: 'value', name: 'v', min: -R, max: R },
+      xAxis: { type: 'value', name: 'u', min: -R, max: R, axisLabel: axisLbl() },
+      yAxis: { type: 'value', name: 'v', min: -R, max: R, axisLabel: axisLbl() },
       series: series,
     }, true);
   }
@@ -414,9 +431,9 @@
         animation: false,
         grid: { left: 56, right: 20, top: 36, bottom: 48 },
         legend: { top: 0, type: 'scroll' },
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'value', name: 'u', min: -R, max: R },
-        yAxis: { type: 'value', name: 'y = u·g(v₀)', scale: true, axisLine: { onZero: false } },
+        tooltip: tipOpt(),
+        xAxis: { type: 'value', name: 'u', min: -R, max: R, axisLabel: axisLbl() },
+        yAxis: { type: 'value', name: 'y = u·g(v₀)', scale: true, axisLine: { onZero: false }, axisLabel: axisLbl() },
         series: series,
       }, true);
       statsEl.textContent = state.slices.length
@@ -454,7 +471,7 @@
       animation: false,
       grid: { left: 56, right: 20, top: 36, bottom: 48 },
       legend: { top: 0 },
-      tooltip: { trigger: 'axis' },
+      tooltip: tipOpt(),
       xAxis: { type: 'value', name: 'y', min: marg.yLo, max: marg.yHi },
       yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       series: series,
@@ -510,7 +527,7 @@
       animation: false,
       grid: { left: 56, right: 20, top: 36, bottom: 48 },
       legend: { top: 0 },
-      tooltip: { trigger: 'axis' },
+      tooltip: tipOpt(),
       xAxis: { type: 'value', name: 'y', min: marg.yLo, max: marg.yHi },
       yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
