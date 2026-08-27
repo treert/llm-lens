@@ -2,6 +2,7 @@
  * activation-demo 理论层：高斯输入过激活函数的输出分布。
  * - 单调段切分（dfn=0 临界点数值定位：符号扫描 + 二分）；
  * - 输出密度 f_Y(y) = Σ f_X(x_i)/|f'(x_i)|（多原像求和，段内二分求逆）；
+ * - 输出 CDF/分位数：逐单调段把子水平集 {f(x)≤y} 拼成 x 区间取 Φ 差，二分求逆；
  * - 均值/方差走 64 点 Gauss–Hermite 求积（不做密度积分）；
  * - relu 族 y=0 点质量 atom = P(x≤0) = 0.5（输入零均值）。
  * 无 DOM 依赖，node 可直接 require。
@@ -121,6 +122,47 @@
       if (d > 0) sum += ActFns.helpers.normPdf(x, sigma) / d;
     });
     return sum;
+  }
+
+  /**
+   * 输出 CDF F_Y(y) = P(f(X) ≤ y)：逐单调段把子水平集 {f(x)≤y} 拼成 x 区间，
+   * 用 Φ 差精确求质量（绕开密度奇点的数值积分）。y 右移 1e-12 保证右连续
+   * （relu 族 y=0 平台/atom 归进 F(0)）。
+   */
+  function outputCdf(act, p, y, sigma, segments) {
+    var yy = y + 1e-12 * (1 + Math.abs(y));
+    var mass = 0;
+    segments.forEach(function (seg) {
+      var sLo = Math.min(seg.fa, seg.fb), sHi = Math.max(seg.fa, seg.fb);
+      if (yy <= sLo) return;
+      if (yy >= sHi) {
+        mass += Math.abs(ActFns.helpers.normCdf(seg.b, sigma)
+          - ActFns.helpers.normCdf(seg.a, sigma));
+        return;
+      }
+      var roots = solvePreimages(act, p, yy, [seg]);
+      if (!roots.length) return;
+      var x = roots[0], dm;
+      if (seg.fa <= seg.fb) dm = ActFns.helpers.normCdf(x, sigma) - ActFns.helpers.normCdf(seg.a, sigma);
+      else dm = ActFns.helpers.normCdf(seg.b, sigma) - ActFns.helpers.normCdf(x, sigma);
+      mass += Math.max(0, dm); // 端点二分误差不至把单段质量弄负
+    });
+    return Math.min(1, mass);
+  }
+
+  /** 输出分位数：在 [lo,hi] 输入范围对应的值域上二分 outputCdf（80 次） */
+  function outputQuantile(act, p, q, sigma, lo, hi) {
+    var segs = monotoneSegments(act, p, lo, hi);
+    var yLo = Infinity, yHi = -Infinity;
+    segs.forEach(function (s) {
+      yLo = Math.min(yLo, s.fa, s.fb);
+      yHi = Math.max(yHi, s.fa, s.fb);
+    });
+    for (var it = 0; it < 80; it++) {
+      var mid = 0.5 * (yLo + yHi);
+      if (outputCdf(act, p, mid, sigma, segs) < q) yLo = mid; else yHi = mid;
+    }
+    return 0.5 * (yLo + yHi);
   }
 
   /** 理论曲线网格：在函数值域的 y 区间内取 nY 点算密度（留 2% 余量） */
@@ -252,6 +294,8 @@
     monotoneSegments: monotoneSegments,
     solvePreimages: solvePreimages,
     outputDensity: outputDensity,
+    outputCdf: outputCdf,
+    outputQuantile: outputQuantile,
     densityGrid: densityGrid,
     outputMoments: outputMoments,
     suggestRange: suggestRange,

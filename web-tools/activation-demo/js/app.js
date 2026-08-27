@@ -212,14 +212,44 @@
       lineStyle: { width: 2, color: '#2563eb' }, itemStyle: { color: '#2563eb' },
     });
     var m = ActTheory.outputMoments(act, p, sigma);
+    var med = ActTheory.outputQuantile(act, p, 0.5, sigma, range.xLo, range.xHi);
+    if (Math.abs(med) < 1e-9) med = 0; // 二分残余噪声归 0，避免显示 -0.0000
+    var sd = Math.sqrt(m.variance);
+    // 竖线：中位数（紫实线，标签在上）、均值（绿实线，标签在下）、μ±kσ（灰虚线/点线）；
+    // μ−kσ 落到显示范围（≈支撑集）外时不画——强偏态分布左侧 σ 线常越界
+    var markData = [
+      { xAxis: med, name: '中位数',
+        lineStyle: { type: 'solid', color: '#9333ea', width: 1.5 },
+        label: { position: 'insideEndTop' } },
+      { xAxis: m.mean, name: '均值',
+        lineStyle: { type: 'solid', color: '#16a34a', width: 1.5 },
+        label: { position: 'insideStartTop' } },
+    ];
+    [1, 2].forEach(function (k) {
+      [-1, 1].forEach(function (sgn) {
+        var v = m.mean + sgn * k * sd;
+        if (v <= grid.yLo || v >= grid.yHi) return;
+        markData.push({
+          xAxis: v, name: 'μ' + (sgn < 0 ? '−' : '+') + k + 'σ',
+          lineStyle: { type: k === 1 ? 'dashed' : 'dotted', color: '#9ca3af' },
+          label: { position: sgn < 0 ? 'insideStartTop' : 'insideEndTop' },
+        });
+      });
+    });
     if (act.atom) {
-      series[series.length - 1].markLine = {
-        symbol: 'none', silent: true,
+      markData.push({
+        xAxis: 0, name: '点质量',
         lineStyle: { type: 'dashed', color: '#dc2626' },
-        label: { formatter: '点质量 P(y=0)=' + m.atom.toFixed(3) },
-        data: [{ xAxis: 0 }],
-      };
+        label: { formatter: '点质量 P(y=0)=' + m.atom.toFixed(3), position: 'insideMiddleTop' },
+      });
     }
+    series[series.length - 1].markLine = {
+      symbol: 'none', silent: true,
+      label: {
+        formatter: function (pr) { return pr.name + ' ' + Number(pr.value).toFixed(2); },
+      },
+      data: markData,
+    };
     chartDist.setOption({
       animation: false,
       grid: { left: 56, right: 20, top: 36, bottom: 48 },
@@ -231,6 +261,7 @@
       series: series,
     }, true);
     var stats = '理论：均值 ' + m.mean.toFixed(4) + '，方差 ' + m.variance.toFixed(4) +
+      '，中位数 ' + med.toFixed(4) +
       (act.atom ? '，点质量 ' + m.atom.toFixed(3) : '') + ' ｜ ';
     if (state.samples) {
       var mv = ActSampler.sampleMeanVar(state.samples);

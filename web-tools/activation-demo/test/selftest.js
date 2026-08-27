@@ -161,6 +161,28 @@ console.log('== theory.js ==');
     1 / (2 * Math.sqrt(Math.PI)), 1e-5);
   approx('relu 点质量=0.5', ActTheory.outputMoments(ActFns.byId('relu'), {}, 1).atom, 0.5, 1e-7);
 
+  // CDF/分位数：零均值输入 ⇒ F(f(0))=0.5、中位数=f(0)（atom/平台/非单调均成立）
+  ActFns.list.forEach(function (act) {
+    var p = ActFns.defaultParams(act);
+    var segsQ = ActTheory.monotoneSegments(act, p, -8, 8);
+    approx(act.id + ' F(f(0))=0.5',
+      ActTheory.outputCdf(act, p, act.fn(0, p), 1, segsQ), 0.5, 1e-6);
+    approx(act.id + ' 中位数=f(0)',
+      ActTheory.outputQuantile(act, p, 0.5, 1, -8, 8), act.fn(0, p), 1e-5);
+  });
+  // tanh 分位数闭式：F_Y⁻¹(q) = tanh(Φ⁻¹(q))
+  approx('tanh 0.975 分位数=tanh(1.959964)',
+    ActTheory.outputQuantile(ActFns.byId('tanh'), {}, 0.975, 1, -8, 8),
+    Math.tanh(1.959964), 1e-5);
+  // gelu 中位数 vs MC 经验中位数（σ=1, N=2e5）
+  (function () {
+    var xsQ = ActSampler.sampleInput(ActSampler.makeRng(9), 200000, 1);
+    var ysQ = ActSampler.applyActivation(gelu, {}, xsQ);
+    ysQ.sort();
+    approx('gelu 理论中位数 vs MC',
+      ActTheory.outputQuantile(gelu, {}, 0.5, 1, -8, 8), ysQ[100000], 0.02);
+  })();
+
   // 矩 vs 蒙特卡洛（N=2e5，固定种子）
   ActFns.list.forEach(function (act) {
     var p = ActFns.defaultParams(act);
