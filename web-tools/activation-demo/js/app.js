@@ -77,7 +77,7 @@
       legend: { top: 0 },
       tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
       xAxis: { type: 'value', name: 'x', min: -state.xRange, max: state.xRange },
-      yAxis: { type: 'value', name: deriv ? "f'(x)" : 'f(x)', scale: true },
+      yAxis: { type: 'value', name: deriv ? "f'(x)" : 'f(x)', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: selectedActs().map(function (a) { return curveSeries(a, deriv); }),
     };
@@ -209,7 +209,7 @@
       legend: { top: 0 },
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'value', name: 'y', min: grid.yLo, max: grid.yHi },
-      yAxis: { type: 'value', name: '密度', scale: true },
+      yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: series,
     }, true);
@@ -416,7 +416,7 @@
         legend: { top: 0, type: 'scroll' },
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'value', name: 'u', min: -R, max: R },
-        yAxis: { type: 'value', name: 'y = u·g(v₀)', scale: true },
+        yAxis: { type: 'value', name: 'y = u·g(v₀)', scale: true, axisLine: { onZero: false } },
         series: series,
       }, true);
       statsEl.textContent = state.slices.length
@@ -456,7 +456,7 @@
       legend: { top: 0 },
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'value', name: 'y', min: marg.yLo, max: marg.yHi },
-      yAxis: { type: 'value', name: '密度', scale: true },
+      yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       series: series,
     }, true);
   }
@@ -512,7 +512,7 @@
       legend: { top: 0 },
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'value', name: 'y', min: marg.yLo, max: marg.yHi },
-      yAxis: { type: 'value', name: '密度', scale: true },
+      yAxis: { type: 'value', name: '密度', scale: true, axisLine: { onZero: false } },
       dataZoom: [{ type: 'inside' }],
       series: series,
     }, true);
