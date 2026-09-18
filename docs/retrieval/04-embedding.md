@@ -17,8 +17,10 @@
 
 ## 2. 双塔结构与 pooling
 
-query 和 doc 各过一个 encoder(通常**共享权重**,否则两塔空间不对齐),
-输出单向量。两个细节:
+query 和 doc 各过一个 encoder,输出单向量。参数是否共享是个设计选择:
+DPR 用两个**独立**的 encoder(query 与 passage 的形态差异大),
+Sentence-BERT / BGE / E5 系多数**共享权重**——省一半参数、
+两塔天然落在同一空间,是目前更主流的做法。两个细节:
 
 - **pooling**:取 [CLS] 还是 mean pooling?检索实践偏爱 mean——
   对所有 token 平均,对长度变化更稳,且缓解 [CLS] 的信息瓶颈;

@@ -36,7 +36,7 @@ python demos/retrieval/tfidf_retrieval.py --query "FlashAttention 为什么快" 
 
 ```
 python demos/retrieval/ivf_recall.py
-python demos/retrieval/ivf_recall.py --clusters 16 --nprobes 1 2 4 8 16
+python demos/retrieval/ivf_recall.py --clusters 32 --nprobes 1 2 4 8 16 32
 ```
 
 实现链路:

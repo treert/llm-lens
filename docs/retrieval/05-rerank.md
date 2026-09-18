@@ -26,7 +26,7 @@ query 的每个 token 都能注意力到文档的每个 token,交互是逐词级
 | 目标 | 形式 | 优点 | 缺点 |
 |---|---|---|---|
 | pointwise | 每对独立打分(分类/回归) | 简单、数据要求低 | 优化目标 ≠ 排序目标:分数的绝对值校准了,相对顺序却未必对 |
-| pairwise | $\max(0,\; m - s^{+} + s^{-})$ 或 $\log \sigma(s^{+} - s^{-})$ | 直接学相对偏好,标注只需"哪个更相关" | 忽略列表整体分布 |
+| pairwise | $\max(0,\; m - s^{+} + s^{-})$ 或 $-\log \sigma(s^{+} - s^{-})$ | 直接学相对偏好,标注只需"哪个更相关" | 忽略列表整体分布 |
 | listwise | 整个候选列表上 softmax / LambdaRank 梯度 | 与 nDCG 等排序指标直接对齐 | 训练复杂、需要完整列表标注 |
 
 实践主流是 **pairwise**:标注成本与效果的平衡点。
@@ -63,7 +63,7 @@ LLM 老师的位置偏置、长度偏置(见 [07-rag-evaluation.md](07-rag-evalu
 双塔与 cross-encoder 之间还有折中:ColBERT 把文档的**每个 token**
 都编码并预计算存储,查询时计算 token 级相似度的 MaxSim:
 
-$$s(q, d) = \sum_{t \in q} \max_{t' \in d} \; E_t \cdot E_{t'}$$
+$$s(q, d) = \sum_{t \in q} \max_{t' \in d} \; E^{q}_{t} \cdot E^{d}_{t'}$$
 
 保留了细粒度交互(比双塔准),又能离线预计算文档侧(比 cross-encoder 快);
 代价是索引体积大一个量级(每篇文档存 $L$ 个向量)。

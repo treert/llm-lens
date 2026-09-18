@@ -106,4 +106,5 @@ agent 的长期记忆系统在检索技术上完全复用 RAG(向量库 + 元数
   to Query-Focused Summarization*(微软 GraphRAG)
 - Yao et al., 2022. *ReAct: Synergizing Reasoning and Acting
   in Language Models*
-- Blondiaux et al., 2025. *The Memory Illusion*(记忆系统设计综述类讨论)
+- Packer et al., 2023. *MemGPT: Towards LLMs as Operating Systems*
+  (长期记忆的分层与读写路径)

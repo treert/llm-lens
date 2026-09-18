@@ -176,7 +176,8 @@ RAG 是两段系统,瓶颈定位必须分开评估。
 
 - **Faithfulness(忠实度)**:答案是否被检索片段支持——直接度量幻觉;
 - **Answer Relevance**:答案是否回应了问题;
-- **Context Precision/Recall**:塞给模型的片段里有用信息占比。
+- **Context Precision**:塞给模型的片段里相关片段占比(信噪比);
+- **Context Recall**:回答所需的信息是否都被检索到了。
 
 经验法则:答案不好时先看检索侧 recall——**检索没召回,生成再好也没用**。
 
@@ -222,3 +223,4 @@ RAG 是两段系统,瓶颈定位必须分开评估。
 - Robertson & Zaragoza, 2009. *The Probabilistic Relevance Framework: BM25 and Beyond*
 - Malkov & Yashunin, 2018. *HNSW: Hierarchical Navigable Small World Graphs*
 - Es et al., 2023. *RAGAS: Automated Evaluation of RAG*
+- Liu et al., 2023. *Lost in the Middle: How Language Models Use Long Contexts*
