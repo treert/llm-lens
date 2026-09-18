@@ -2,6 +2,8 @@
 
 > 信息来源:`config.json` 与 `model.safetensors.index.json`(只读解析)。
 > 本文只记录对分析有用的结构性事实。
+> 分析笔记(实证结果)见 `docs/kimi_k3/` 子目录,如
+> [kimi_k3/weight-moments.md](kimi_k3/weight-moments.md)(权重矩分析:初始化基线 vs 训练后实测)。
 
 ## 总体
 

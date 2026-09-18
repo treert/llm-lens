@@ -31,11 +31,17 @@
 2. 模型路径**不得硬编码**在脚本里:一律通过 `llm_lens.get_model_dir()` 解析,
    优先级为 CLI `--model-dir` > `config/models.local.yaml`(本地配置,不入库)
 3. `config/*.local.yaml`、`tmp/`、`output/`、`*.egg-info/` 不入库
-4. 分析产生的图和中间结果写到 `output/`,不要散落在仓库各处
+4. 分析结果的放置分两层(对所有模型统一):
+   - **产物**(npz/json/全部图等脚本输出,可再生):写到 `output/<模型名>/`,不入库
+   - **笔记**(人读的结论与解读,入库):写到 `docs/<模型名>/` 子目录的 markdown;
+     笔记引用的关键图**复制一份**到 `docs/<模型名>/figures/`——直接链 `output/`
+     的图在 GitHub 上会裂(output 不入库)
+   - 结构笔记 `docs/<模型名>.md` 开头加指向该子目录的链接,保持互访
 
 ## 文档索引
 
 - 各模型的结构笔记(架构参数、权重命名、量化格式):`docs/<模型名>.md`,如 `docs/kimi-k3.md`
+- 各模型的分析笔记(实证结论):`docs/<模型名>/` 子目录,如 `docs/kimi_k3/weight-moments.md`
 - 通用数学背景(自由概率、随机矩阵等):`docs/math/`
 - 推理部署/推理 Infra 笔记(kernel、serving、量化等):`docs/inference/`,索引见其 README.md
 - 检索/RAG 笔记(embedding、向量索引、BM25、RAG 架构与评估):`docs/retrieval/`,索引见其 README.md
