@@ -22,6 +22,7 @@
 | `analyze_weight_moments.py` | 训练后权重的逐向量均值/方差/范数统计,对比初始化基线:嵌入/LM Head 按行(token 向量),FFN 的 gate/up 按行(key)、down 按列(value);输出 `weight_moments/`(npz + summary.json)与直方图 |
 | `analyze_mlp_scale_depth.py` | 逐层扫描全部 93 层 MLP(dense L0 + MoE 共享专家)的权重尺度与死行指标(p5/中位数),输出 `mlp_scale_depth.{npz,json}` + 深度曲线 |
 | `analyze_embed_lmhead.py` | 嵌入与 LM Head 配对分析:同 token 配对余弦 vs 随机基线、各向异性(均值方向)、范数极端 token(经 tiktoken.model 解码),输出 `embed_lmhead.{npz,json}` + 四联图 |
+| `analyze_norm_gains.py` | 全部 RMSNorm 增益向量的分布分析:逐层 mean/std/CV/极端通道占比、相邻层余弦、input vs post_attention 分支一致性、与 FFN 尺度联动,输出 `norm_gains.{npz,json}` + 六联图 |
 | `analyze_cosine_dist.py` | 行向量两两余弦分布(采样 8192 行):embed×embed、lm_head×lm_head、跨表异 token 对照,叠加 N(0,1/d) 理论曲线,输出 `cosine_dist.{json,npz}` + 双联图 |
 | `mla_common.py` | 公共模块:MLA 层权重加载、潜空间 Gram、逐头谱计算(被 extract/analyze 脚本复用) |
 
