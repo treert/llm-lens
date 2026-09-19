@@ -1,7 +1,9 @@
 # DeepSeek-V4.1-Flash 模型结构笔记
 
 > 信息来源:`config.json`、`model.safetensors.index.json` 与各分片头部(只读解析),
-> 架构语义参照模型自带的最小推理代码 `inference/model.py`。
+> 架构语义参照模型自带的最小推理代码 `inference/model.py`;
+> 外部参照为官方技术报告 **DeepSeek-V4.1-Flash: Pushing the Limits of KV Cache Compression**
+> (DeepSeek-AI,arXiv:2609.19969v1,2026-09-17),凡引用处标注「官方」。
 > 本文只记录对分析有用的结构性事实。
 > 分析笔记(实证结果)见 `docs/ds_v4_1_flash/` 子目录:
 > [ds_v4_1_flash/weight-moments.md](ds_v4_1_flash/weight-moments.md)(权重矩分析:初始化基线 vs 训练后实测)、
@@ -13,6 +15,9 @@
 | 项 | 值 |
 | --- | --- |
 | 模型类型 | `DeepseekV41ForCausalLM`(多模态:语言模型 + ViT 视觉塔 + aligner) |
+| 结构范式(官方) | **非对称 CED(Causal Encoder–Decoder)**:L0–L19 作 causal encoder、L20–L39 作 decoder;decoder 的 global KV 统一由 encoder 末层 hidden state 经层相关投影得到 |
+| 注意力机制(官方) | **CSA2(Compressed Sparse Attention 2)**:Full / Reindex / Reuse 三种静态模式跨层复用 main KV 与检索结果(逐层对应见"注意力"节) |
+| KV cache 精度 | 主 KV / 压缩 latent 为 **FP4**(MXFP4:16 通道一个 E4M3 scale),SWA KV 保留 **FP8**;长程 KV ≈ 890 B/token(推导见"长程 KV 显存账") |
 | 权重分片 | 48 个 safetensors 分片 |
 | 张量总数 | 96,085(约 4.7 万是路由专家的 FP4 打包权重,4.76 万是 UE8M0 缩放系数) |
 | 索引记录总大小 | 约 475.24 GiB |
@@ -33,6 +38,7 @@
 | Engram | 第 1、14 层各挂一个 n-gram 哈希嵌入模块(见下节) |
 | 上下文 | max_position_embeddings=1,048,576;RoPE 只加在末 64 维,YaRN(factor=16,原始 65,536) |
 | 其他 | rms_norm_eps=1e-20,initializer_range=0.02,tie_word_embeddings=false,swiglu_limit=10.0 |
+| 优化器分配(官方) | RMSNorm 及非矩阵参数 → **AdamW**(wd=0.1);主干线性矩阵 → Muon;Q/K 矩阵 → **Head-wise Muon**(按注意力头各配预条件器);Engram/Embedding/Prediction Head → **Nesterov Momentum + Sinkhorn Balancing**(只需一份 momentum buffer,避免 Adam 的两套状态) |
 
 ## 注意力:latent attention + 滑窗/压缩稀疏检索
 
@@ -56,6 +62,58 @@
 - compress_ratio=0 的层(L0、L1、MTP)禁用 YaRN 用基础 rope_theta=10000;其余层压缩分支用
   compress_rope_theta=160000。
 
+**官方名称与模式(arXiv:2609.19969,2026-09-17)**:这套机制在官方技术报告里叫
+**CSA2(Compressed Sparse Attention 2)**,与 **CED(Causal Encoder–Decoder)** 非对称结构配套——
+L0–L19 是 causal encoder、L20–L39 是 decoder,decoder 的 global KV 统一由 encoder 末层 hidden state
+经层相关投影得到(C_l = H_{L/2}·W_l^KV),本机代码即"L20 的 compressor 吃第 20 层注意力子层的输入"。
+逐层三模式与本地集合的对应关系:
+
+| CSA2 模式 | 做什么 | 本机对应 |
+| --- | --- | --- |
+| **Full** | 自产 main KV;indexer K 由 main KV 投影;跑 indexer 产出 Top-K(唯一产出可复用 cache 的模式) | `kv_source_layer_ids` = {2, 8, 14, 20} |
+| **Reindex** | main KV 与 indexer K 复用前序层,用本层 indexer Q 重算 Top-K | `index_source_layer_ids` 中非 Full 的 {24, 28, 32, 36} |
+| **Reuse** | main KV、indexer K、Top-K 全复用,不跑 indexer | 其余 30 层(L3–7、9–13、15–19、21–23、25–27、29–31、33–35、37–39) |
+
+压缩率 m=1(L20–L39)即报告所称"不压缩 main KV"的特例。相关精度:**主 KV/压缩 latent 用 FP4**(MXFP4,
+16 通道一个 E4M3 scale),**SWA KV 保留 FP8**;**SWA Bounded Replay** 只 replay 最近 128 个 token 并把
+SWA 截断在该段内,从而把 SWA KV 从持久化 cache 中移除;全局 KV ≈ 890 B/token(≈ V4-Flash 的 1/4)。
+
+## 长程 KV 显存账:官方"890 B/token"的推导验证
+
+官方报告给出全局 KV cache 常驻 HBM 的占用 ≈ **890 B/token**(≈ DeepSeek-V4-Flash 的 1/4)。
+这个数字可以由本机的 config + 推理代码完全推出,不需要额外假设:
+
+| 项 | 通道 | 数值格式 | 缩放 | 字节/条目 |
+| --- | --- | --- | --- | --- |
+| main KV / 压缩 latent | 512 | FP4 E2M1(0.5 B/通道) | 每 16 通道 1 个 E4M3 scale → 32 B | **288** |
+| indexer K | 128 | FP4 E2M1 | 每 32 通道 1 个 E8M0 scale → 4 B | **68** |
+
+每 token 的条目数:encoder 的 3 组 Full 各按 m=2 摊(3 × 1/2 = 1.5),decoder 20 层共享 1 份且 m=1
+(1 × 1 = 1),合计 **2.5 条/token**。
+
+```
+encoder  3 × 1/2 × 356 = 534 B/token
+decoder  1 ×  1  × 356 = 356 B/token
+                        ─────
+Global KV cache         = 890 B/token
+```
+
+官方口径的对照:DeepSeek-V4-Flash 为 **3514 B/token**,890 / 3514 = 25.3% ≈ **1/4**(即降低 74.7%,
+同显存理论上可容纳 ≈ 3.95 倍上下文)。注意口径是**随序列长度增长的那部分**:SWA KV 本身大小不变,
+只是靠 SWA Bounded Replay 被移出持久化存储(持久化 KV 因此降到上一代的 ≈ 1/8)。
+
+对应代码:`fp4_act_quant(latent, 16, True, scale_dtype=torch.float8_e4m3fn)`(压缩 KV,见
+`Attention._compress_kv`)与 `fp4_act_quant(k, fp4_block_size=32, True)`(indexer K,默认 E8M0)。
+
+三个前提都与代码一致:L0/L1 与 MTP 的 `compress_ratio=0`、不产生长程 KV;indexer K 只由 4 个
+Full 层(`Indexer.owns_k = layer_id in kv_source_layers`)产出,其余层读 `shared_attn.index_k`;
+SWA KV(每层 128 槽 × 512 维 FP8)是与序列长度无关的 per-sequence 环形缓冲
+(40 × 128 × 512 × 1 B ≈ 2.6 MB/序列),不计入 per-token 口径,持久化时又被 SWA Bounded Replay 省掉。
+
+附带观察:两者都是 1 B/scale,但精度取向不同——压缩 latent 用 E4M3(每 16 通道,scale 更密、
+非 2 的幂),indexer K 用 E8M0(每 32 通道、纯 2 的幂)。前者要反量化后参与加权求和,后者只用于
+Top-K 排序,这个分工与"长程粗、局部细"的整体取向一致。
+
 ## Hyper-Connections(HC)
 
 残差流不是单向量而是 hc_mult=4 份并行副本(命名 `layers.N.hc_{attn,ffn}_{fn,base,scale}`,fp32):
@@ -65,6 +123,10 @@
 - 混合系数由流本身算出:`hc_fn`(24×20480,20480=4×5120)投影 + `hc_base`(24)+ `hc_scale`(3);
 - 子层算出的系数给**下一个**子层用(attention 产的 pre_mix 给本层 FFN 用,FFN 产的给下一层 attention);
 - 24 = (2 + hc_mult) × hc_mult:pre(4)+ post(4)+ comb(16)。
+
+上述"系数后移"的写法就是官方报告里的 **Single-Pass mHC**:输入混合改用上一层产出的系数
+(X_{l+1} = B_l·X_l + C_l·F_l(A_{l-1}·X_l),而非常规的 A_l),使每个 hidden tile 一遍即可同时用于
+系数预测与输入混合;部署期再融成 Mega-mHC kernel,激活内存流量由 (4n+4)d 降到 (2n+2)d(理论下界,n=hc_mult=4)。
 
 ## Engram(n-gram 哈希嵌入)
 
@@ -79,6 +141,16 @@
 - `q_weight`/`k_weight`([4,5120],bf16,初始化全 1):门控 = sigmoid(signed_sqrt(归一化点积)),
   即"流与 n-gram key 匹配程度"决定写入强度;
 - 图像 token 不参与 n-gram(engram_mask 关闭门控)。
+
+**V4.1 相对原 Engram 论文(《Conditional Memory via Scalable Lookup》)的调整(官方)**:
+
+- 删除门控之后的短因果卷积(原为 `SiLU(Conv1D(RMSNorm(Ṽ))) + Ṽ`),理由是其收益不足以覆盖推理复杂度;
+- 多残差流下**所有分支共享记忆表与 Value 投影,但各分支有自己的 Key 通路**:本机对应 `wkv`
+  一次投出 4 份 key + 1 份共享 value,再由 `q_weight · k_weight` 逐分支加权;
+- 推理时记忆表主要驻留 **Host Memory**,由后台 RDMA 预取;第二个模块放在第 14 层也留出了更长的
+  通信隐藏窗口(第一个放 L1 是为了尽早替代静态局部模式的重建);
+- 本机门控为 `sigmoid(copysign(sqrt(|dot|), dot))`(signed-sqrt,代码注释「matching the training kernel」),
+  比报告里写的 σ(dot/√d) 多一层 signed-sqrt。
 
 ## MoE 与路由
 
