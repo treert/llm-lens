@@ -22,6 +22,10 @@ LLM 的前向计算大部分是三类操作:**矩阵投影、向量加和、向�
 **Kimi-K3**(混合线性注意力 + MoE 的多模态模型,权重为 safetensors + mxfp4 量化),
 结构笔记见 [docs/kimi-k3.md](docs/kimi-k3.md)。
 
+**DeepSeek-V4.1-Flash**(latent attention + 压缩稀疏检索 + Hyper-Connections + Engram 的
+多模态 MoE 模型,权重为 safetensors + FP8 块量化/FP4 专家量化),
+结构笔记见 [docs/ds_v4_1_flash.md](docs/ds_v4_1_flash.md)。
+
 ## 目录结构
 
 ```
@@ -30,10 +34,12 @@ llm-lens/
 ├── config/
 │   └── models.example.yaml   # 模型路径配置模板(复制为 models.local.yaml 使用,不入库)
 ├── docs/                     # 模型结构笔记、原理层面的学习笔记
-│   └── kimi-k3.md
-├── py-src/llm_lens/          # 模型无关的通用分析工具库(Python;配置加载、向量指标等)
+│   ├── kimi-k3.md
+│   └── ds_v4_1_flash.md
+├── py-src/llm_lens/          # 模型无关的通用分析工具库(Python;配置加载、量化格式解码等)
 ├── analysis/                 # 依赖具体模型结构的分析脚本,一个模型一个子目录
-│   └── kimi_k3/
+│   ├── kimi_k3/
+│   └── ds_v4_1_flash/
 ├── tmp/                      # 临时文件(git 忽略)
 └── output/                   # 分析输出(git 忽略)
 ```

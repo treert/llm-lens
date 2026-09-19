@@ -20,8 +20,70 @@ def read_shard_header(path: str | Path) -> tuple[dict, int]:
     return header, 8 + header_len
 
 
+def _fp8_e4m3_table() -> np.ndarray:
+    """FP8 E4M3(fn) 的 256 项解码表:1 符号位 + 4 指数位(偏置 7)+ 3 尾数位。
+
+    无无穷大,指数全 1 且尾数全 1 为 NaN;正规格化最小值 2^-6,最大 448。
+    """
+    bits = np.arange(256, dtype=np.uint8)
+    sign = np.where(bits & 0x80, -1.0, 1.0)
+    exp = (bits >> 3) & 0x0F
+    mant = (bits & 0x07).astype(np.float32) / 8.0
+    val = np.where(exp == 0, mant * 2.0**-6, (1.0 + mant) * 2.0 ** (exp.astype(np.int32) - 7))
+    val = sign * val
+    val[(bits & 0x7F) == 0x7F] = np.nan  # 0x7F / 0xFF
+    return val.astype(np.float32)
+
+
+_FP8_E4M3_TABLE = _fp8_e4m3_table()
+
+# FP4 E2M1(fn) 的 16 项解码表(低 3 位:1 指数位偏置 1 + 2... 实际为 OCP MX 规格):
+# 索引低 4 位 = 数值编码,bit3 为符号。
+FP4_E2M1_TABLE = np.array(
+    [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
+     -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0],
+    dtype=np.float32,
+)
+
+
+def e8m0_to_float(bits: np.ndarray) -> np.ndarray:
+    """UE8M0 缩放系数解码:无符号 8 位纯指数,值 = 2^(bits-127);0xFF 为 NaN。"""
+    u8 = np.ascontiguousarray(bits).view(np.uint8)
+    out = np.exp2(u8.astype(np.int32) - 127).astype(np.float32)
+    out[u8 == 0xFF] = np.nan
+    return out
+
+
+def unpack_fp4_e2m1(packed: np.ndarray) -> np.ndarray:
+    """解包 FP4 E2M1:每字节低半字节在前(偶数列)、高半字节在后,最后一维宽度翻倍。"""
+    u8 = np.ascontiguousarray(packed).view(np.uint8)
+    low = FP4_E2M1_TABLE[u8 & 0x0F]
+    high = FP4_E2M1_TABLE[u8 >> 4]
+    out = np.stack([low, high], axis=-1)
+    return out.reshape(*u8.shape[:-1], 2 * u8.shape[-1])
+
+
+def dequant_block(weight: np.ndarray, scale: np.ndarray, block: tuple[int, int] = (32, 32)) -> np.ndarray:
+    """块量化反量化:weight 为解码后的浮点矩阵,scale 为逐块缩放,返回 weight * scale(逐块广播)。
+
+    Args:
+        weight: 形状 (R, C) 的浮点数组(如 FP8 解码结果)。
+        scale: 形状 (R//br, C//bc) 的浮点数组(如 UE8M0 解码结果)。
+        block: 块大小 (br, bc),默认 32x32。
+    """
+    br, bc = block
+    r, c = weight.shape
+    if scale.shape != (r // br, c // bc) or r % br or c % bc:
+        raise ValueError(f"weight {weight.shape} 与 scale {scale.shape} 不满足块大小 {block}")
+    return weight * np.kron(scale, np.ones(block, dtype=np.float32))
+
+
 def _decode_buffer(raw: bytes, st_dtype: str, name: str) -> np.ndarray:
-    """把 safetensors 原始字节解码为一维 numpy 数组(BF16 用位移转 float32,无损)。"""
+    """把 safetensors 原始字节解码为一维 numpy 数组(BF16 用位移转 float32,无损)。
+
+    FP8(E4M3/E8M0)解码为 float32;I8 保留原始整型(打包的 FP4 需要原始字节,
+    由调用方用 unpack_fp4_e2m1 解包)。
+    """
     if st_dtype == "BF16":
         u16 = np.frombuffer(raw, dtype="<u2")
         return (u16.astype(np.uint32) << 16).view(np.float32)
@@ -29,10 +91,16 @@ def _decode_buffer(raw: bytes, st_dtype: str, name: str) -> np.ndarray:
         return np.frombuffer(raw, dtype=np.float16)
     if st_dtype == "F32":
         return np.frombuffer(raw, dtype="<f4")
+    if st_dtype == "F8_E4M3":
+        return _FP8_E4M3_TABLE[np.frombuffer(raw, dtype=np.uint8)]
+    if st_dtype == "F8_E8M0":
+        return e8m0_to_float(np.frombuffer(raw, dtype=np.uint8))
+    if st_dtype == "I8":
+        return np.frombuffer(raw, dtype=np.int8)
     raise ValueError(f"暂不支持的张量类型 {st_dtype}(张量 {name!r})")
 
 
-_ST_ITEMSIZE = {"BF16": 2, "F16": 2, "F32": 4}
+_ST_ITEMSIZE = {"BF16": 2, "F16": 2, "F32": 4, "F8_E4M3": 1, "F8_E8M0": 1, "I8": 1}
 
 
 def read_tensor(path: str | Path, name: str, dtype=np.float64) -> np.ndarray:
