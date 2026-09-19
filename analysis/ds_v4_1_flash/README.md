@@ -21,7 +21,9 @@
 | `analyze_weight_moments.py` | 训练后权重的逐向量均值/方差/范数统计,对比初始化基线:嵌入/LM Head 按行(token 向量),FFN 的 w1/w3 按行(key)、w2 按列(value);覆盖共享专家与抽样路由专家;输出 `weight_moments/`(npz + summary.json)与直方图 |
 | `analyze_mlp_scale_depth.py` | 逐层扫描全部 40 层 MoE 共享专家的权重尺度与死行指标(p5/中位数),输出 `mlp_scale_depth.{npz,json}` + 深度曲线 |
 | `analyze_embed_lmhead.py` | 嵌入与 LM Head 配对分析:同 token 配对余弦 vs 随机基线、各向异性(均值方向)、范数极端 token(经 tokenizer.json 解码),输出 `embed_lmhead.{npz,json}` + 四联图 |
-| `analyze_norm_gains.py` | 全部 RMSNorm 增益向量的分布分析:逐层 mean/std/CV/极端通道占比、相邻层余弦、attn vs ffn 分支一致性、与 FFN 尺度联动,输出 `norm_gains.{npz,json}` + 六联图 |
+| `analyze_norm_gains.py` | 全部 RMSNorm 增益向量的分布分析:逐层 mean/std/CV/极端通道占比、相邻层余弦(**原始 + 去均值两口径**)、attn vs ffn 分支一致性、画像集中度(有效维数 PR / top-k 方差占比 / 跨层 PCA / 常驻突出维)、与 FFN 尺度联动,输出 `norm_gains.{npz,json}` + 九联图 |
+| `analyze_norm_distribution.py` | 增益向量的**单层分布形状**与数值分辨率:δ = g/median(|g|)−1 逐层 IQR 标准化后的主体偏度/峰度、超 kσ 尾部占比 vs 高斯理论 (检验"高斯主体 + 稀疏尖峰")、单层唯一值与众数占比、主体宽度相当于几个 bf16 步,输出 `norm_distribution.json` + 六联图 |
+| `analyze_residual_equalization.py` | 入口增益的「均衡器」机制检验(只用权重代理量):跟踪维的写回(`wo_b` 行范)/读取(`wq_a` 列范)响度 ρ + 随机通道对照、因果配对的滞后相关(δ=±2,含共享/路由专家 `w2` 画像)、累积写回衰减扫描,输出 `gain_equalization.json` + 四联图 |
 | `analyze_cosine_dist.py` | 行向量两两余弦分布(采样 8192 行):embed×embed、lm_head×lm_head、跨表异 token 对照,叠加 N(0,1/d) 理论曲线,输出 `cosine_dist.{json,npz}` + 双联图 |
 
 前置条件:已在仓库根目录执行 `pip install -e .`(见根目录 README 的快速开始)。
