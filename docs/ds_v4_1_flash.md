@@ -15,7 +15,7 @@
 | 项 | 值 |
 | --- | --- |
 | 模型类型 | `DeepseekV41ForCausalLM`(多模态:语言模型 + ViT 视觉塔 + aligner) |
-| 结构范式(官方) | **非对称 CED(Causal Encoder–Decoder)**:L0–L19 作 causal encoder、L20–L39 作 decoder;decoder 的 global KV 统一由 encoder 末层 hidden state 经层相关投影得到 |
+| 结构范式(官方) | **非对称 CED(Causal Encoder–Decoder)**:L0–L19 作 causal encoder、L20–L39 作 decoder;decoder 的 global KV 不由各层隐状态生成,统一由 encoder 末层输出(H₂₀)经 **L20 的 compressor** 投影得到(全 decoder 共享一份) |
 | 注意力机制(官方) | **CSA2(Compressed Sparse Attention 2)**:Full / Reindex / Reuse 三种静态模式跨层复用 main KV 与检索结果(逐层对应见"注意力"节) |
 | KV cache 精度 | 主 KV / 压缩 latent 为 **FP4**(MXFP4:16 通道一个 E4M3 scale),SWA KV 保留 **FP8**;长程 KV ≈ 890 B/token(推导见"长程 KV 显存账") |
 | 权重分片 | 48 个 safetensors 分片 |
@@ -59,13 +59,18 @@
 - **输出投影分组低秩**:输出先 reshape 成 8 组(每组 8 头 × 512 = 4096 维),
   `wo_a` 块对角(每组 4096→1024,FP8,convert.py 反量化后按 einsum 用),`wo_b`(8192→5120,FP8);
   输出后对 rope 尾维做**逆旋转**(因为 V 向量里带着 RoPE 旋转);
-- compress_ratio=0 的层(L0、L1、MTP)禁用 YaRN 用基础 rope_theta=10000;其余层压缩分支用
-  compress_rope_theta=160000。
+- RoPE 每层只有一组频率:compress_ratio=0 的层(L0、L1、MTP)禁用 YaRN、用基础 rope_theta=10000;
+  compress_ratio>0 的层(L2–L39)**整层**(Q、SWA 滑窗 KV、压缩 KV 共用同一组 freqs_cis)用
+  compress_rope_theta=160000 + YaRN——名字里的 "compress" 有误导性;压缩 KV 的"位置间隔更大"
+  是靠旋转位置取**组首 token**(第 j 组取位置 j×m)体现的,不是单独的 theta。
 
 **官方名称与模式(arXiv:2609.19969,2026-09-17)**:这套机制在官方技术报告里叫
 **CSA2(Compressed Sparse Attention 2)**,与 **CED(Causal Encoder–Decoder)** 非对称结构配套——
-L0–L19 是 causal encoder、L20–L39 是 decoder,decoder 的 global KV 统一由 encoder 末层 hidden state
-经层相关投影得到(C_l = H_{L/2}·W_l^KV),本机代码即"L20 的 compressor 吃第 20 层注意力子层的输入"。
+L0–L19 是 causal encoder、L20–L39 是 decoder,decoder 的 global KV 不由各层自己的隐状态生成,
+统一由 encoder 末层输出 H₂₀ 经 **L20 的 compressor** 投影得到——checkpoint 中只有 {2, 8, 14, 20}
+有 compressor 权重,L21–L39 没有产生 global KV 的权重、只读 L20 的缓存,层间差异由各自的 Q 承担
+(报告公式 C_l = H_{L/2}·W_l^KV 的逐层投影在本 checkpoint 退化为一份共享投影);
+本机代码即"L20 的 compressor 吃第 20 层注意力子层的输入"。
 逐层三模式与本地集合的对应关系:
 
 | CSA2 模式 | 做什么 | 本机对应 |
