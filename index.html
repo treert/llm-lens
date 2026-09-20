@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LLM Lens · 可视化工具</title>
+  <title>LLM Lens · 解剖开源大模型</title>
   <style>
     :root {
       --accent: #4f6ef7;
@@ -26,7 +26,7 @@
       flex-direction: column;
     }
     .wrap {
-      width: min(880px, 92vw);
+      width: min(920px, 92vw);
       margin: 0 auto;
       flex: 1;
     }
@@ -54,62 +54,92 @@
       color: var(--text-dim);
       font-size: 15px;
       line-height: 1.8;
-      max-width: 640px;
+      max-width: 680px;
     }
-    .tool-list {
+    /* ---- 可折叠分组 ---- */
+    .group { margin-bottom: 36px; }
+    .group-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+      cursor: pointer;
       list-style: none;
-      display: grid;
-      gap: 16px;
-      padding-bottom: 64px;
+      user-select: none;
+      transition: color 0.2s;
     }
-    .tool-card a {
-      display: block;
+    .group-title:hover { color: var(--text); }
+    .group-title::-webkit-details-marker { display: none; }
+    .group-title::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg) translateY(-1px);
+      transition: transform 0.2s;
+    }
+    .group[open] .group-title { margin-bottom: 16px; }
+    .group[open] .group-title::before { transform: rotate(45deg) translateY(-1px); }
+    /* ---- 卡片网格 ---- */
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 24px 28px;
+      padding: 20px 22px;
       text-decoration: none;
       color: inherit;
       transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-      position: relative;
     }
-    .tool-card a:hover {
+    .card:hover {
       transform: translateY(-3px);
       border-color: #c7d2fb;
       box-shadow: 0 12px 32px rgba(79, 110, 247, 0.12);
     }
-    .tool-card h2 {
-      font-size: 19px;
-      font-weight: 600;
+    .card-icon {
+      flex-shrink: 0;
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      font-size: 20px;
     }
-    .tool-card h2 .arrow {
-      margin-left: auto;
-      color: var(--accent);
-      font-weight: 400;
-      transition: transform 0.18s ease;
+    .card-body h3 {
+      font-size: 15.5px;
+      font-weight: 600;
+      line-height: 1.35;
+      margin-bottom: 4px;
     }
-    .tool-card a:hover .arrow { transform: translateX(4px); }
-    .tool-card p {
-      margin-top: 10px;
+    .card-body p {
+      font-size: 13px;
       color: var(--text-dim);
-      font-size: 14px;
-      line-height: 1.8;
+      line-height: 1.65;
     }
     .tags {
-      margin-top: 14px;
+      margin-top: 10px;
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
     }
     .tag {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--accent);
       background: var(--accent-soft);
       border-radius: 6px;
-      padding: 2px 10px;
+      padding: 1px 9px;
     }
     footer {
       border-top: 1px solid var(--border);
@@ -129,111 +159,141 @@
   <div class="wrap">
     <header>
       <span class="eyebrow">LLM LENS</span>
-      <h1>可视化工具集</h1>
+      <h1>解剖开源大模型</h1>
       <p class="subtitle">
-        从原理层面理解 LLM 学习项目的配套交互式小工具：
-        把论文和教科书里的结论，变成看得见、调得动的直观现象。
+        从原理层面理解 LLM:直接读取开源权重(safetensors)做结构分析与数值实证,
+        把"架构图上的设计"变成"权重里的证据";
+        另配一组数学小工具,把论文和教科书里的结论变成看得见、调得动的直观现象。
       </p>
     </header>
 
     <main>
-      <ul class="tool-list">
-        <li class="tool-card">
-          <a href="web-tools/orthogonal-demo/">
-            <h2>高维随机向量：最小夹角 / 最大点乘<span class="arrow">→</span></h2>
-            <p>
-              在 N 维单位球面上均匀随机取 K 个向量，考察两两点乘的最大值（即最小夹角的余弦）。
-              蒙特卡洛模拟与 Cai–Fan–Jiang (2013) 理论曲线对照，直观感受"高维空间中随机向量近乎正交"。
-            </p>
-            <div class="tags">
-              <span class="tag">蒙特卡洛模拟</span>
-              <span class="tag">高维几何</span>
-              <span class="tag">理论对照</span>
+      <details class="group" open>
+        <summary class="group-title">模型结构分析</summary>
+        <div class="project-grid">
+
+          <a class="card" href="web-tools/ds-v4-1-flash-structure/">
+            <div class="card-icon" style="background:#e8edff;">🧬</div>
+            <div class="card-body">
+              <h3>DeepSeek-V4.1-Flash 结构说明</h3>
+              <p>
+                552B 多模态 MoE 的架构全景:非对称 CED、逐层依赖详图(悬停查看每层的产出与跨层复用)、
+                CSA² 压缩稀疏注意力、部分维 RoPE + 分频段 YaRN、890 B/token KV 显存账、
+                Single-Pass mHC、Engram 记忆、DSpark MTP——已与开源 checkpoint 及推理代码逐项核对。
+              </p>
+              <div class="tags">
+                <span class="tag">模型结构</span>
+                <span class="tag">KV Cache</span>
+                <span class="tag">开源权重核对</span>
+              </div>
             </div>
           </a>
-        </li>
-        <li class="tool-card">
-          <a href="web-tools/spectrum-demo/">
-            <h2>随机矩阵的奇异值谱：MP 律与 Fuss-Catalan<span class="arrow">→</span></h2>
-            <p>
-              高斯矩阵 A 的奇异值谱（Marchenko-Pastur 律）与乘积谱的理论曲线对比：
-              AᵀB（D×D 摆法）为 MP_c ⊠ MP_c（c=1 即 Fuss-Catalan FC₂，支撑 [0, 27/4]），
-              AB（H×H 摆法）÷c 为 MP_c ⊠ MP_1——同一对矩阵，乘法维度不同曲线也不同。
-              只依赖比值 c = H/D，是 QK 谱分析的初始化随机基线。
-            </p>
-            <div class="tags">
-              <span class="tag">随机矩阵</span>
-              <span class="tag">自由概率</span>
-              <span class="tag">理论曲线</span>
+
+        </div>
+      </details>
+
+      <details class="group" open>
+        <summary class="group-title">数学基础 · 交互演示</summary>
+        <div class="project-grid">
+
+          <a class="card" href="web-tools/orthogonal-demo/">
+            <div class="card-icon" style="background:#e8f2f8;">📐</div>
+            <div class="card-body">
+              <h3>高维随机向量:最小夹角 / 最大点乘</h3>
+              <p>
+                N 维单位球面上随机 K 个向量两两点乘的最大值:蒙特卡洛模拟与 Cai–Fan–Jiang (2013)
+                理论曲线对照,直观感受"高维空间中随机向量近乎正交"。
+              </p>
+              <div class="tags">
+                <span class="tag">蒙特卡洛模拟</span>
+                <span class="tag">高维几何</span>
+                <span class="tag">理论对照</span>
+              </div>
             </div>
           </a>
-        </li>
-        <li class="tool-card">
-          <a href="web-tools/proj-dot-demo/">
-            <h2>双随机投影的点积分布：Variance-Gamma 与夹角的遗忘<span class="arrow">→</span></h2>
-            <p>
-              向量 A、B（cos 夹角 ρ 精确受控）经独立高斯矩阵 Ma、Mb 投影后的点积
-              s = (Ma A)·(Mb B)：固定向量随机矩阵时服从对称 Variance-Gamma（Bessel-K）分布，
-              且与 ρ 严格无关（双各向同性遗忘夹角）；固定矩阵随机向量时均值偏移 ρ·trM/D
-              由矩阵实例决定——QK score 分布的初始化基线，谱研究的标量姊妹篇。
-            </p>
-            <div class="tags">
-              <span class="tag">随机矩阵</span>
-              <span class="tag">注意力机制</span>
-              <span class="tag">蒙特卡洛模拟</span>
+
+          <a class="card" href="web-tools/spectrum-demo/">
+            <div class="card-icon" style="background:#f1ebfe;">📊</div>
+            <div class="card-body">
+              <h3>随机矩阵的奇异值谱:MP 律与 Fuss-Catalan</h3>
+              <p>
+                高斯矩阵 A 的奇异值谱(Marchenko-Pastur 律)与乘积谱的理论曲线对比:
+                同一对矩阵,乘法维度不同曲线也不同;只依赖比值 c = H/D,是 QK 谱分析的初始化随机基线。
+              </p>
+              <div class="tags">
+                <span class="tag">随机矩阵</span>
+                <span class="tag">自由概率</span>
+                <span class="tag">理论曲线</span>
+              </div>
             </div>
           </a>
-        </li>
-        <li class="tool-card">
-          <a href="web-tools/proj-len-demo/">
-            <h2>随机投影链的长度平方分布：卡方、乘积卡方与深度对数正态<span class="arrow">→</span></h2>
-            <p>
-              单位向量经高斯矩阵链投影后的长度平方 s = ‖B···BA X‖²：L=1 为卡方（伽马）、
-              L=2 为 Bessel-K₀ 乘积伽马（精确闭式）、深链趋近对数正态——均值恒为 c = H/D
-              （fan-in 保值），中位数却 ≈ c·e^(−L/H) 随深度萎缩：LayerNorm 的随机矩阵注脚。
-              quenched 对照展示长度统计的 self-averaging。
-            </p>
-            <div class="tags">
-              <span class="tag">随机矩阵</span>
-              <span class="tag">深度网络初始化</span>
-              <span class="tag">蒙特卡洛模拟</span>
+
+          <a class="card" href="web-tools/proj-dot-demo/">
+            <div class="card-icon" style="background:#fdf0d5;">🎯</div>
+            <div class="card-body">
+              <h3>双随机投影的点积分布:Variance-Gamma 与夹角的遗忘</h3>
+              <p>
+                夹角 ρ 受控的向量经独立高斯矩阵投影后的点积:固定向量时服从对称 Variance-Gamma
+                且与 ρ 严格无关;固定矩阵时均值偏移 ρ·trM/D——QK score 分布的初始化基线。
+              </p>
+              <div class="tags">
+                <span class="tag">随机矩阵</span>
+                <span class="tag">注意力机制</span>
+                <span class="tag">蒙特卡洛模拟</span>
+              </div>
             </div>
           </a>
-        </li>
-        <li class="tool-card">
-          <a href="web-tools/noise-ops-demo/">
-            <h2>噪音向量的基本运算：加、数乘、点积<span class="arrow">→</span></h2>
-            <p>
-              标准正态噪音经历逐元素加、数乘、按元素乘、平方与点积后的分布变化：
-              精确理论密度（正态 / 乘积正态 Bessel-K / 卡方）与蒙特卡洛直方图对照，
-              并对比双方随机 / 一方固定两种点积，检验"σ²=1/D 时点积方差是否为 1"。
-            </p>
-            <div class="tags">
-              <span class="tag">概率分布</span>
-              <span class="tag">蒙特卡洛模拟</span>
-              <span class="tag">初始化与缩放</span>
+
+          <a class="card" href="web-tools/proj-len-demo/">
+            <div class="card-icon" style="background:#dff5ec;">📏</div>
+            <div class="card-body">
+              <h3>随机投影链的长度平方分布:卡方、乘积卡方与深度对数正态</h3>
+              <p>
+                单位向量经高斯矩阵链投影后的长度平方:L=1 卡方、L=2 Bessel-K₀ 乘积伽马、
+                深链趋近对数正态;中位数随深度萎缩——LayerNorm 的随机矩阵注脚。
+              </p>
+              <div class="tags">
+                <span class="tag">随机矩阵</span>
+                <span class="tag">深度网络初始化</span>
+                <span class="tag">蒙特卡洛模拟</span>
+              </div>
             </div>
           </a>
-        </li>
-        <li class="tool-card">
-          <a href="web-tools/activation-demo/">
-            <h2>激活函数：曲线、导数与噪音分布<span class="arrow">→</span></h2>
-            <p>
-              LLM 里的 11 个激活函数（GELU 精确/tanh 近似、SiLU/Swish、Mish、ReLU 族……）：
-              函数与导数叠加对比（饱和区、死区、平滑化），高斯噪音过激活的输出分布——
-              理论密度（多原像求和、可积奇点）与蒙特卡洛直方图对照，
-              ReLU 的 y=0 点质量即"精确稀疏"的几何图像。
-              附 GLU 门控族二维面板：SwiGLU/GLU/GEGLU/ReGLU 的门控地形热力图、
-              切片联动与输出分布随相关系数 ρ 的变化（E[y]=ρE[v·g(v)]）。
-            </p>
-            <div class="tags">
-              <span class="tag">激活函数</span>
-              <span class="tag">分布视角</span>
-              <span class="tag">理论对照</span>
+
+          <a class="card" href="web-tools/noise-ops-demo/">
+            <div class="card-icon" style="background:#fde8f2;">🎲</div>
+            <div class="card-body">
+              <h3>噪音向量的基本运算:加、数乘、点积</h3>
+              <p>
+                标准正态噪音经历逐元素加、数乘、按元素乘、平方与点积后的分布变化:
+                精确理论密度与蒙特卡洛直方图对照,检验"σ²=1/D 时点积方差是否为 1"。
+              </p>
+              <div class="tags">
+                <span class="tag">概率分布</span>
+                <span class="tag">蒙特卡洛模拟</span>
+                <span class="tag">初始化与缩放</span>
+              </div>
             </div>
           </a>
-        </li>
-      </ul>
+
+          <a class="card" href="web-tools/activation-demo/">
+            <div class="card-icon" style="background:#e8f4ee;">📈</div>
+            <div class="card-body">
+              <h3>激活函数:曲线、导数与噪音分布</h3>
+              <p>
+                LLM 里的 11 个激活函数(GELU、SiLU/Swish、Mish、ReLU 族……):函数与导数叠加对比,
+                高斯噪音过激活的输出分布;附 GLU 门控族二维面板与切片联动。
+              </p>
+              <div class="tags">
+                <span class="tag">激活函数</span>
+                <span class="tag">分布视角</span>
+                <span class="tag">理论对照</span>
+              </div>
+            </div>
+          </a>
+
+        </div>
+      </details>
     </main>
   </div>
 
