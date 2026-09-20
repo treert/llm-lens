@@ -84,6 +84,13 @@
     }
     .group[open] .group-title { margin-bottom: 16px; }
     .group[open] .group-title::before { transform: rotate(45deg) translateY(-1px); }
+    .group-desc {
+      margin: -8px 0 16px 15px;
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.75;
+      max-width: 660px;
+    }
     /* ---- 卡片网格 ---- */
     .project-grid {
       display: grid;
@@ -161,18 +168,20 @@
       <span class="eyebrow">LLM LENS</span>
       <h1>解剖开源大模型</h1>
       <p class="subtitle">
-        从原理层面理解 LLM:直接读取开源权重(safetensors)做结构分析与数值实证,
-        把"架构图上的设计"变成"权重里的证据";
-        另配一组数学小工具,把论文和教科书里的结论变成看得见、调得动的直观现象。
+        从原理层面理解 LLM 的个人学习项目:权重级结构实证 + 数学直觉演示。
       </p>
     </header>
 
     <main>
       <details class="group" open>
         <summary class="group-title">模型结构分析</summary>
+        <p class="group-desc">
+          以透镜观察大模型的内部原理:直接读取开源权重(safetensors)做结构分析与数值实证,
+          把"架构图上的设计"变成"权重里的证据"。
+        </p>
         <div class="project-grid">
 
-          <a class="card" href="web-tools/ds-v4-1-flash-structure/">
+          <a class="card" href="web-tools/ds-v4-1-flash-structure/index.html">
             <div class="card-icon" style="background:#e8edff;">🧬</div>
             <div class="card-body">
               <h3>DeepSeek-V4.1-Flash 结构说明</h3>
@@ -194,9 +203,13 @@
 
       <details class="group" open>
         <summary class="group-title">数学基础 · 交互演示</summary>
+        <p class="group-desc">
+          一组数学小工具:把论文和教科书里的结论变成看得见、调得动的直观现象——
+          蒙特卡洛模拟与理论曲线对照。
+        </p>
         <div class="project-grid">
 
-          <a class="card" href="web-tools/orthogonal-demo/">
+          <a class="card" href="web-tools/orthogonal-demo/index.html">
             <div class="card-icon" style="background:#e8f2f8;">📐</div>
             <div class="card-body">
               <h3>高维随机向量:最小夹角 / 最大点乘</h3>
@@ -212,7 +225,7 @@
             </div>
           </a>
 
-          <a class="card" href="web-tools/spectrum-demo/">
+          <a class="card" href="web-tools/spectrum-demo/index.html">
             <div class="card-icon" style="background:#f1ebfe;">📊</div>
             <div class="card-body">
               <h3>随机矩阵的奇异值谱:MP 律与 Fuss-Catalan</h3>
@@ -228,7 +241,7 @@
             </div>
           </a>
 
-          <a class="card" href="web-tools/proj-dot-demo/">
+          <a class="card" href="web-tools/proj-dot-demo/index.html">
             <div class="card-icon" style="background:#fdf0d5;">🎯</div>
             <div class="card-body">
               <h3>双随机投影的点积分布:Variance-Gamma 与夹角的遗忘</h3>
@@ -244,7 +257,7 @@
             </div>
           </a>
 
-          <a class="card" href="web-tools/proj-len-demo/">
+          <a class="card" href="web-tools/proj-len-demo/index.html">
             <div class="card-icon" style="background:#dff5ec;">📏</div>
             <div class="card-body">
               <h3>随机投影链的长度平方分布:卡方、乘积卡方与深度对数正态</h3>
@@ -260,7 +273,7 @@
             </div>
           </a>
 
-          <a class="card" href="web-tools/noise-ops-demo/">
+          <a class="card" href="web-tools/noise-ops-demo/index.html">
             <div class="card-icon" style="background:#fde8f2;">🎲</div>
             <div class="card-body">
               <h3>噪音向量的基本运算:加、数乘、点积</h3>
@@ -276,7 +289,7 @@
             </div>
           </a>
 
-          <a class="card" href="web-tools/activation-demo/">
+          <a class="card" href="web-tools/activation-demo/index.html">
             <div class="card-icon" style="background:#e8f4ee;">📈</div>
             <div class="card-body">
               <h3>激活函数:曲线、导数与噪音分布</h3>
