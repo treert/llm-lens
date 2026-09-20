@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepSeek-V4.1-Flash 结构说明 · LLM Lens</title>
+  <style>
+    :root {
+      --accent: #4f6ef7;
+      --accent-soft: #eef1fe;
+      --text: #1f2430;
+      --text-dim: #6b7280;
+      --card-bg: #ffffff;
+      --border: #e6e8f0;
+      --enc: #4f6ef7;
+      --dec: #8b5cf6;
+      --swa: #0ea5e9;
+      --engram: #f59e0b;
+      --mtp: #10b981;
+      --vit: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 500px at 80% -10%, #dfe6ff 0%, transparent 60%),
+        radial-gradient(900px 400px at 10% -10%, #e8f0ff 0%, transparent 55%),
+        #f7f8fc;
+      min-height: 100vh;
+      line-height: 1.75;
+    }
+    .wrap { width: min(920px, 92vw); margin: 0 auto; }
+    header { padding: 64px 0 32px; }
+    .eyebrow {
+      display: inline-block; font-size: 13px; letter-spacing: 0.12em;
+      color: var(--accent); background: var(--accent-soft);
+      border: 1px solid #d9e1fd; border-radius: 999px; padding: 4px 14px; margin-bottom: 18px;
+    }
+    h1 { font-size: clamp(26px, 4.5vw, 36px); font-weight: 700; }
+    .subtitle { margin-top: 10px; color: var(--text-dim); font-size: 15px; max-width: 720px; }
+    nav.toc {
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+      padding: 16px 22px; margin: 8px 0 28px; font-size: 13.5px;
+      display: flex; flex-wrap: wrap; gap: 6px 16px;
+    }
+    nav.toc a { color: var(--accent); text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    section.card {
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px 32px; margin-bottom: 22px;
+    }
+    h2 { font-size: 21px; font-weight: 650; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid var(--accent-soft); }
+    h2 .no { color: var(--accent); font-weight: 400; margin-right: 8px; font-size: 15px; vertical-align: 2px; }
+    h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; color: #374151; }
+    p { margin: 8px 0; font-size: 14.5px; }
+    ul, ol { margin: 8px 0 8px 22px; font-size: 14.5px; }
+    li { margin: 4px 0; }
+    code, .mono {
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 0.92em; background: #f3f4f8; border: 1px solid var(--border);
+      border-radius: 5px; padding: 1px 6px; color: #3b4371;
+    }
+    .math { font-family: "STIX Two Math", "Cambria Math", Georgia, serif; font-style: italic; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+    th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+    th { background: var(--accent-soft); font-weight: 600; color: #374151; }
+    tr:nth-child(even) td { background: #fafbfe; }
+    .callout {
+      border-left: 4px solid var(--accent); background: var(--accent-soft);
+      border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 14px 0; font-size: 14px;
+    }
+    .callout.warn { border-color: #f59e0b; background: #fef6e4; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+    /* ---- 架构图 ---- */
+    .arch { display: flex; flex-direction: column; gap: 6px; margin: 18px 0; }
+    .arch-row { display: flex; align-items: stretch; gap: 8px; }
+    .arch-label { flex: 0 0 108px; font-size: 12px; color: var(--text-dim); display: flex; align-items: center; justify-content: flex-end; text-align: right; padding-right: 6px; }
+    .blk { flex: 1; border-radius: 8px; padding: 7px 10px; font-size: 12.5px; line-height: 1.5; border: 1px solid transparent; }
+    .blk b { font-size: 13px; }
+    .blk-io     { background: #f3f4f8; border-color: var(--border); }
+    .blk-enc    { background: #e8edff; border-color: #c3d0fb; }
+    .blk-dec    { background: #f1ebfe; border-color: #d9c9fa; }
+    .blk-engram { background: #fdf0d5; border-color: #f3d89a; }
+    .blk-mtp    { background: #dff5ec; border-color: #a8e5cd; }
+    .blk-vit    { background: #fde8f2; border-color: #f5c0da; }
+    .arrow-down { text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1; padding-left: 116px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12.5px; color: var(--text-dim); margin-top: 10px; }
+    .legend span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); border: 1px solid rgba(0,0,0,0.08); }
+    /* ---- 逐层依赖详图 ---- */
+    .layers { display: flex; flex-direction: column; gap: 14px; margin: 6px 0 4px; }
+    .lg-row { display: flex; gap: 8px; align-items: flex-start; }
+    .lg-label { flex: 0 0 108px; font-size: 12px; color: var(--text-dim); text-align: right; padding: 14px 6px 0 0; line-height: 1.4; }
+    .lg-stack { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .lg-group { position: relative; border: 1.5px dashed #c9cede; border-radius: 10px; padding: 12px 8px 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+    .glabel { position: absolute; top: -9px; left: 10px; background: #fff; padding: 0 6px; font-size: 11px; color: var(--text-dim); }
+    .cell { position: relative; width: 62px; border-radius: 8px; border: 1px solid transparent; padding: 4px 6px 5px; font-size: 10.5px; line-height: 1.3; cursor: default; }
+    .cell .lid { font-size: 12.5px; font-weight: 700; }
+    .cell .role { opacity: 0.85; }
+    .c-swa       { background: #f3f4f8; border-color: #dfe1ea; }
+    .c-full-enc  { background: #4f6ef7; border-color: #3b5ae0; color: #fff; }
+    .c-reuse-enc { background: #e8edff; border-color: #c3d0fb; }
+    .c-full-dec  { background: #8b5cf6; border-color: #7443e8; color: #fff; }
+    .c-reidx     { background: #d9c9fa; border-color: #bda6f2; }
+    .c-reuse-dec { background: #f1ebfe; border-color: #d9c9fa; }
+    .c-mtp       { background: #dff5ec; border-color: #a8e5cd; }
+    .bdg { position: absolute; top: -7px; right: -5px; width: 15px; height: 15px; border-radius: 50%; font-size: 10px; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+    .bdg-e { background: #f59e0b; }
+    .bdg-t { background: #10b981; }
+    .tip { display: none; position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: 300px; background: #262b3a; color: #e8eaf2; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.55; z-index: 30; box-shadow: 0 10px 28px rgba(20,24,40,0.35); text-align: left; }
+    .cell:hover .tip { display: block; }
+    .lg-group > .cell:first-of-type .tip { left: 0; transform: none; }
+    .lg-group > .cell:last-of-type .tip { left: auto; right: 0; transform: none; }
+    .tip .tt { font-weight: 700; color: #fff; margin-bottom: 4px; font-size: 12.5px; }
+    .tip ul { margin: 0 0 0 16px; font-size: 12px; }
+    .tip li { margin: 2px 0; }
+    .tip code { background: rgba(255,255,255,0.14); border: none; color: #cdd6ff; padding: 0 4px; }
+    .tip b { color: #a9bcff; }
+    footer { border-top: 1px solid var(--border); padding: 20px 0 30px; font-size: 13px; color: var(--text-dim); text-align: center; }
+    .src { font-size: 12.5px; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="eyebrow">LLM LENS · 模型结构笔记</span>
+      <h1>DeepSeek-V4.1-Flash 结构说明</h1>
+      <p class="subtitle">
+        552B 主干参数的原生多模态 MoE 模型:非对称 Causal Encoder–Decoder(CED)+
+        压缩稀疏注意力 CSA² + FP4 KV Cache + Hyper-Connections + Engram 参数化记忆。
+        核心收益:Prefill 计算量近乎减半、Global KV Cache 从 3514 → <b>890 Bytes/token</b>(降低约 75%)。
+      </p>
+      <p class="subtitle" style="margin-top:8px; font-size:13px">
+        ✅ 已与官方开源发布(<a href="https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash" style="color:var(--accent)">HuggingFace</a>)逐项核对:
+        <code>config.json</code>、<code>inference/model.py</code> / <code>engram.py</code> / <code>vision.py</code>、
+        <code>model.safetensors.index.json</code>(96,085 张量 / 475.24 GiB / 48 分片,全部一致);
+        并补充了阅读推理代码才能确认的实现级细节。
+      </p>
+    </header>
+
+    <nav class="toc">
+      <a href="#overview">1 总体架构</a>
+      <a href="#params">2 关键参数</a>
+      <a href="#ced">3 CED</a>
+      <a href="#attn">4 Latent Attention 与 CSA²</a>
+      <a href="#rope">5 位置编码</a>
+      <a href="#kv">6 KV Cache 显存账</a>
+      <a href="#hc">7 Hyper-Connections</a>
+      <a href="#engram">8 Engram</a>
+      <a href="#moe">9 MoE 与路由</a>
+      <a href="#mtp">10 DSpark MTP</a>
+      <a href="#vit">11 视觉塔</a>
+      <a href="#quant">12 量化与权重命名</a>
+      <a href="#optim">13 优化器与后训练</a>
+    </nav>
+
+    <section class="card" id="overview">
+      <h2><span class="no">1</span>总体架构</h2>
+      <p>
+        模型类型 <code>DeepseekV41ForCausalLM</code>,由<b>语言主干(40 层)</b>、<b>ViT 视觉塔(32 层)</b>、
+        <b>aligner</b> 与 <b>3 层 DSpark MTP 草稿层</b>组成。语言主干被切成两段:
+        <b>L0–L19 是 Causal Encoder</b>,<b>L20–L39 是 Decoder</b>——这是理解全模型所有设计的出发点。
+      </p>
+
+      <div class="arch">
+        <div class="arch-row">
+          <div class="arch-label">图像输入</div>
+          <div class="blk blk-vit"><b>vision.*</b>:32 层 ViT(hidden 1024、16 头、patch 14)→ <b>aligner</b>(3×3 邻域拼 9216 → 5120),经 image_start/end/newline 边界嵌入插入文本流</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">文本输入</div>
+          <div class="blk blk-io"><b>embed.weight</b>:129,280 × 5120(BF16,与 LM Head 不共享)</div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="arch-row">
+          <div class="arch-label">Causal Encoder<br>L0–L19</div>
+          <div class="blk blk-enc">
+            <b>20 层 Block</b>(latent attention + MoE)。L0–L1 纯滑窗(SWA 128);
+            L2–L19 压缩率 m=2。<br>
+            CSA² 源层:compressor / indexer 在 <b>L2、L8、L14</b>(Full 模式),逐层产 main KV 与 Top-512;
+            Engram 哈希记忆挂在 <b>L1、L14</b>。
+          </div>
+        </div>
+        <div class="arrow-down">↓ encoder 末层输出 H₂₀ 经 <b>L20 的 compressor</b> 投影为 decoder 全部 global KV(仅一份,全 decoder 共享)</div>
+        <div class="arch-row">
+          <div class="arch-label">Decoder<br>L20–L39</div>
+          <div class="blk blk-dec">
+            <b>20 层 Block</b>,压缩率 m=1(不压缩 main KV)。global KV 全 decoder 共享<b>一份</b>:
+            仅 <b>L20 为 Full</b>(compressor 吃第 20 层注意力子层输入);
+            <b>L24、L28、L32、L36 为 Reindex</b>(复用 KV,本层 indexer Q 重选 Top-K);
+            其余 15 层为 <b>Reuse</b>(KV 与 Top-K 全复用)。
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="arch-row">
+          <div class="arch-label">输出</div>
+          <div class="blk blk-io">先用 <b>hc_pre</b> 把 4 份 HC 副本合并回单流 → <b>norm</b>(最终 RMSNorm)→ <b>head.weight</b>:129,280 × 5120(logits 以 fp32 计算)</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">草稿(推理加速)</div>
+          <div class="blk blk-mtp"><b>mtp.0/1/2</b>:3 层 DSpark MTP(block_size=5 块级草稿,各含注意力 + 128 专家 MoE);mtp.2 独有 markov_head(一阶马尔可夫 logit 偏置)与 confidence_head(草稿置信度)</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span style="--c:#e8edff">Encoder(L0–L19)</span>
+        <span style="--c:#f1ebfe">Decoder(L20–L39)</span>
+        <span style="--c:#fdf0d5">Engram</span>
+        <span style="--c:#dff5ec">DSpark MTP</span>
+        <span style="--c:#fde8f2">视觉塔</span>
+      </div>
+
+      <div class="callout">
+        六项架构技术的分工:<b>CED</b> 降低 Prefill 计算;<b>CSA²</b> 跨层复用 KV 与稀疏索引;
+        <b>FP4 Main KV</b> 压缩单个 KV Entry;<b>Single-Pass mHC</b> 把激活内存流量降到理论下界;
+        <b>Engram</b> 把静态局部知识从主干计算中解耦;<b>DSpark</b> 做推测解码。
+      </div>
+
+      <h3 style="margin-top:26px">1.2 逐层依赖详图<span style="font-weight:400; font-size:12.5px; color:var(--text-dim)">(悬停格子,查看该层的产出与跨层依赖)</span></h3>
+      <p class="src" style="margin-bottom:10px">
+        每层<b>都自产</b>(不跨层共享):64 头低秩 Q(<code>wq_a→q_norm→wq_b</code>)、SWA 滑窗 KV(128 槽环形,FP8)、
+        MoE FFN(384 选 6 + 1 共享专家)、HC 混合系数。跨层共享的只有 CSA² 四件套:<b>main KV / index K / Top-512 / 候选池</b>,
+        且总是由组首的 Full / Reindex 层产出、组内后续层复用——虚线框即共享范围。
+      </p>
+      <div class="layers">
+        <div class="lg-row">
+          <div class="lg-label">Encoder<br>L0–L19</div>
+          <div class="lg-stack">
+            <div class="lg-group"><span class="glabel">纯 SWA 层(compress_ratio=0,θ=10000 无 YaRN)</span>
+              <div class="cell c-swa"><div class="lid">L0</div><div class="role">纯 SWA</div>
+                <div class="tip"><div class="tt">L0 · Encoder · 纯滑窗</div><ul>
+                  <li>compress_ratio=0:只有 128 滑窗,<b>无</b>压缩 KV / indexer</li>
+                  <li>RoPE:θ=10000,禁用 YaRN</li>
+                  <li>不依赖任何前序层的 KV / 索引</li>
+                </ul></div>
+              </div>
+              <div class="cell c-swa"><span class="bdg bdg-e" title="Engram">E</span><div class="lid">L1</div><div class="role">纯 SWA</div>
+                <div class="tip"><div class="tt">L1 · Encoder · 纯滑窗 + Engram</div><ul>
+                  <li>同 L0:纯 SWA,θ=10000 无 YaRN</li>
+                  <li><b>块入口</b>(attention 之前)先执行 Engram:n-gram 哈希查表(3.84 亿 × 256,FP8)门控写入 4 份 HC 残差流</li>
+                </ul></div>
+              </div>
+            </div>
+            <div class="lg-group"><span class="glabel">组 1 · m=2(源层 L2)</span>
+              <div class="cell c-full-enc"><div class="lid">L2</div><div class="role">Full</div>
+                <div class="tip"><div class="tt">L2 · Encoder · Full(组 1 首层)</div><ul>
+                  <li>m=2:compressor 把 2 个 token 经 softmax 门控池化成 1 个 512 维 latent</li>
+                  <li><b>产出</b>:main KV(FP4,288 B/条)+ index K(128 维,FP4,68 B/条)+ Top-512</li>
+                  <li>产出供 <b>L3–L7</b> 复用</li>
+                  <li>RoPE:θ=160000 + YaRN(整层共用)</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-enc"><div class="lid">L3</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L3 · Encoder · Reuse(组 1)</div><ul>
+                  <li>m=2;复用 <b>L2</b> 的 main KV / index K / Top-512</li>
+                  <li>不跑 compressor / indexer</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-enc"><div class="lid">L4</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L4 · Encoder · Reuse(组 1)</div><ul><li>复用 <b>L2</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L5</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L5 · Encoder · Reuse(组 1)</div><ul><li>复用 <b>L2</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L6</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L6 · Encoder · Reuse(组 1)</div><ul><li>复用 <b>L2</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L7</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L7 · Encoder · Reuse(组 1)</div><ul><li>复用 <b>L2</b> 的 main KV / index K / Top-512</li></ul></div></div>
+            </div>
+            <div class="lg-group"><span class="glabel">组 2 · m=2(源层 L8)</span>
+              <div class="cell c-full-enc"><div class="lid">L8</div><div class="role">Full</div>
+                <div class="tip"><div class="tt">L8 · Encoder · Full(组 2 首层)</div><ul>
+                  <li>m=2;自产 main KV / index K / Top-512(覆盖 L2 的缓存槽位)</li>
+                  <li>产出供 <b>L9–L13</b> 复用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-enc"><div class="lid">L9</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L9 · Encoder · Reuse(组 2)</div><ul><li>复用 <b>L8</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L10</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L10 · Encoder · Reuse(组 2)</div><ul><li>复用 <b>L8</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L11</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L11 · Encoder · Reuse(组 2)</div><ul><li>复用 <b>L8</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L12</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L12 · Encoder · Reuse(组 2)</div><ul><li>复用 <b>L8</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L13</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L13 · Encoder · Reuse(组 2)</div><ul><li>复用 <b>L8</b> 的 main KV / index K / Top-512</li></ul></div></div>
+            </div>
+            <div class="lg-group"><span class="glabel">组 3 · m=2(源层 L14)</span>
+              <div class="cell c-full-enc"><span class="bdg bdg-e" title="Engram">E</span><div class="lid">L14</div><div class="role">Full</div>
+                <div class="tip"><div class="tt">L14 · Encoder · Full(组 3 首层)+ Engram</div><ul>
+                  <li><b>块入口</b>先执行第二个 Engram(位置更深,留出更长的 Host Memory 预取隐藏窗口)</li>
+                  <li>m=2;自产 main KV / index K / Top-512,供 <b>L15–L19</b> 复用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-enc"><div class="lid">L15</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L15 · Encoder · Reuse(组 3)</div><ul><li>复用 <b>L14</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L16</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L16 · Encoder · Reuse(组 3)</div><ul><li>复用 <b>L14</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L17</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L17 · Encoder · Reuse(组 3)</div><ul><li>复用 <b>L14</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L18</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L18 · Encoder · Reuse(组 3)</div><ul><li>复用 <b>L14</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-enc"><div class="lid">L19</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L19 · Encoder · Reuse(组 3)</div><ul>
+                  <li>复用 <b>L14</b> 的 main KV / index K / Top-512</li>
+                  <li>Encoder 最后一层:其输出 <b>H₂₀</b> 是 Decoder 全部 global KV 的唯一来源(CED)</li>
+                </ul></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="lg-row">
+          <div class="lg-label">Decoder<br>L20–L39</div>
+          <div class="lg-stack">
+            <div class="lg-group"><span class="glabel">组 4 · m=1 · 全 Decoder 共享一份 global KV(源层 L20)</span>
+              <div class="cell c-full-dec"><div class="lid">L20</div><div class="role">Full·候选池</div>
+                <div class="tip"><div class="tt">L20 · Decoder · Full(组 4 首层 · 候选池源)</div><ul>
+                  <li>m=1:不压缩,每 token 一条 latent</li>
+                  <li>compressor 吃<b>本层注意力子层输入</b>(即 Encoder 末层输出 H₂₀)——CED 的落地:全 Decoder 的 global KV 都由这里产出(唯一一份)</li>
+                  <li><b>产出</b>:main KV + index K + Top-512,供 L21–L39 复用</li>
+                  <li>同时扫描全部可见上下文,产出<b>共享候选池</b>(2048 块 × 8 = 16,384 位置),供 L24/28/32/36 的 Reindex 使用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><div class="lid">L21</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L21 · Decoder · Reuse</div><ul><li>m=1;复用 <b>L20</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L22</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L22 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L23</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L23 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 main KV / index K / Top-512</li></ul></div></div>
+              <div class="cell c-reidx"><div class="lid">L24</div><div class="role">Reindex</div>
+                <div class="tip"><div class="tt">L24 · Decoder · Reindex</div><ul>
+                  <li>复用 <b>L20</b> 的 main KV / index K</li>
+                  <li>用<b>本层</b> indexer Q(<code>wq_b</code> 1280→4096)在 L20 的候选池(16,384 位置)内重选 <b>Top-512</b></li>
+                  <li>新 Top-512 供 <b>L25–L27</b> 复用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><div class="lid">L25</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L25 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L24</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L26</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L26 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L24</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L27</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L27 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L24</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reidx"><div class="lid">L28</div><div class="role">Reindex</div>
+                <div class="tip"><div class="tt">L28 · Decoder · Reindex</div><ul>
+                  <li>复用 <b>L20</b> 的 main KV / index K;本层 indexer Q 重选 Top-512</li>
+                  <li>新 Top-512 供 <b>L29–L31</b> 复用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><div class="lid">L29</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L29 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L28</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L30</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L30 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L28</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L31</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L31 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L28</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reidx"><div class="lid">L32</div><div class="role">Reindex</div>
+                <div class="tip"><div class="tt">L32 · Decoder · Reindex</div><ul>
+                  <li>复用 <b>L20</b> 的 main KV / index K;本层 indexer Q 重选 Top-512</li>
+                  <li>新 Top-512 供 <b>L33–L35</b> 复用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><div class="lid">L33</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L33 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L32</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L34</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L34 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L32</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reuse-dec"><div class="lid">L35</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L35 · Decoder · Reuse</div><ul><li>复用 <b>L20</b> 的 KV + <b>L32</b> 的 Top-512</li></ul></div></div>
+              <div class="cell c-reidx"><div class="lid">L36</div><div class="role">Reindex</div>
+                <div class="tip"><div class="tt">L36 · Decoder · Reindex</div><ul>
+                  <li>复用 <b>L20</b> 的 main KV / index K;本层 indexer Q 重选 Top-512</li>
+                  <li>新 Top-512 供 <b>L37–L39</b> 复用</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><span class="bdg bdg-t" title="DSpark target">T</span><div class="lid">L37</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L37 · Decoder · Reuse + DSpark target(1/3)</div><ul>
+                  <li>复用 <b>L20</b> 的 KV + <b>L36</b> 的 Top-512</li>
+                  <li><b>块入口</b>残差流(4 份 HC 副本求 mean)被收集,拼进 <code>mtp.0.main_proj</code> 的输入</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><span class="bdg bdg-t" title="DSpark target">T</span><div class="lid">L38</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L38 · Decoder · Reuse + DSpark target(2/3)</div><ul>
+                  <li>复用 <b>L20</b> 的 KV + <b>L36</b> 的 Top-512</li>
+                  <li>块入口残差流同样被收集给 MTP</li>
+                </ul></div>
+              </div>
+              <div class="cell c-reuse-dec"><span class="bdg bdg-t" title="DSpark target">T</span><div class="lid">L39</div><div class="role">Reuse</div>
+                <div class="tip"><div class="tt">L39 · Decoder · Reuse + DSpark target(3/3)</div><ul>
+                  <li>复用 <b>L20</b> 的 KV + <b>L36</b> 的 Top-512;块入口残差流被收集给 MTP</li>
+                  <li>主干最后一层:输出经 <code>hc_pre</code> 合并 4 副本 → <code>norm</code> → <code>head</code> 产出 logits</li>
+                </ul></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="lg-row">
+          <div class="lg-label">MTP 草稿<br>L40–L42</div>
+          <div class="lg-stack">
+            <div class="lg-group"><span class="glabel">DSpark · 块级草稿(block_size=5,纯 SWA,θ=10000;embed/head 与主干共享)</span>
+              <div class="cell c-mtp"><div class="lid">mtp.0</div><div class="role">L40 · 投影</div>
+                <div class="tip"><div class="tt">mtp.0 · DSpark 草稿 1/3</div><ul>
+                  <li><code>main_proj</code>(15360→5120)+ <code>main_norm</code>:拼接 L37/38/39 的<b>块入口残差流</b>(注意力输入,非输出)投影成草稿流</li>
+                  <li>草稿块 5 个输入位置:首位是真实 token,其余填 noise token(128799)</li>
+                  <li>DSparkAttention:可见范围 = 主干 128 滑窗 + 本块 5 位置;MoE 缩版(128 专家选 3)</li>
+                  <li>prefill 时只 seed 滑窗 KV,不产生草稿</li>
+                </ul></div>
+              </div>
+              <div class="cell c-mtp"><div class="lid">mtp.1</div><div class="role">L41 · 中间</div>
+                <div class="tip"><div class="tt">mtp.1 · DSpark 草稿 2/3</div><ul>
+                  <li>完整 Block(DSparkAttention + 128 选 3 MoE + HC),无 main_proj / 输出头</li>
+                  <li>同样吃 mtp.0 投影出的 <code>main_x</code> 做滑窗 KV</li>
+                </ul></div>
+              </div>
+              <div class="cell c-mtp"><div class="lid">mtp.2</div><div class="role">L42 · 输出</div>
+                <div class="tip"><div class="tt">mtp.2 · DSpark 草稿 3/3(输出段)</div><ul>
+                  <li>独有 <code>norm</code> + <code>markov_head</code>(embed/head 各 129280×256:一阶马尔可夫 logit <b>加性偏置</b>,逐位采样下一位)</li>
+                  <li><code>confidence_head.proj</code>(5376→1):hidden ⊕ markov_embed → 每个草稿 token 的置信度</li>
+                  <li>一次产出 5 个草稿 token,交主干验证(推测解码)</li>
+                </ul></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="legend">
+        <span style="--c:#4f6ef7">Full(encoder 组首)</span>
+        <span style="--c:#8b5cf6">Full(decoder 组首 L20)</span>
+        <span style="--c:#d9c9fa">Reindex(重选 Top-K)</span>
+        <span style="--c:#e8edff">Reuse(encoder)</span>
+        <span style="--c:#f1ebfe">Reuse(decoder)</span>
+        <span style="--c:#f3f4f8">纯 SWA</span>
+        <span style="--c:#dff5ec">DSpark MTP</span>
+        <span style="--c:#f59e0b">E = Engram 写入</span>
+        <span style="--c:#10b981">T = DSpark target</span>
+      </div>
+    </section>
+
+    <section class="card" id="params">
+      <h2><span class="no">2</span>关键参数</h2>
+      <div class="grid2">
+        <table>
+          <tr><th>项</th><th>值</th></tr>
+          <tr><td>主干参数 / Engram 参数</td><td>552B / 196B</td></tr>
+          <tr><td>层数</td><td>40(20 Encoder + 20 Decoder)+ 3 MTP</td></tr>
+          <tr><td>hidden_size</td><td>5120</td></tr>
+          <tr><td>词表</td><td>129,280</td></tr>
+          <tr><td>最大上下文</td><td>1,048,576(YaRN factor 16,原始 65,536)</td></tr>
+          <tr><td>Prefill / Decode 激活参数</td><td>8B / 16B 每 token</td></tr>
+        </table>
+        <table>
+          <tr><th>项</th><th>值</th></tr>
+          <tr><td>注意力头</td><td>64 头 × 512 维(448 nope + 64 rope)</td></tr>
+          <tr><td>KV</td><td>单 KV 头,512 维 latent,K=V 共享</td></tr>
+          <tr><td>路由 / 共享专家</td><td>384 选 6 / 1 个必过</td></tr>
+          <tr><td>SWA 窗口 / Top-K</td><td>128 / 512</td></tr>
+          <tr><td>Global KV Cache</td><td><b>890 B/token</b>(V4-Flash 为 3514)</td></tr>
+          <tr><td>预训练数据</td><td>45T 多模态 tokens</td></tr>
+        </table>
+      </div>
+      <p class="src">权重侧:48 个 safetensors 分片,96,085 个张量,约 475 GiB;dtype 分布 BF16 520 / F32 387 / F8_E4M3 357 / F8_E8M0 47,589 / I8(FP4 打包)47,232。权重名没有 <code>model.</code> 前缀。</p>
+    </section>
+
+    <section class="card" id="ced">
+      <h2><span class="no">3</span>CED:因果编码器—解码器</h2>
+      <p>
+        传统 40 层 Decoder-only 模型,Prefill 时每个 Prompt token 都要完整通过 40 层,每层还要自产 KV。
+        CED 的做法:<b>Decoder 的 global KV 不由各层自己的隐状态生成,而是统一由 Encoder 末层输出
+        H₂₀ 经 L20 的 compressor 投影得到</b>:
+      </p>
+      <p style="text-align:center" class="math">C = H₂₀ · W<sup>KV</sup> &nbsp;(checkpoint 中只有 L20 一份 compressor 权重,全 Decoder 共享一份缓存)</p>
+      <p>
+        L21–L39 没有 compressor / indexer 权重,global KV 纯读 L20 的缓存,层间差异由各自的 Q 承担
+        (存储只需一份,这正是 890 B/token 里 decoder 只占 356 B 的原因)。
+        于是长度为 <span class="math">S</span> 的 Prompt 只需完整跑前 20 层 Encoder;
+        只有 Prompt 末尾窗口内的 token 需要继续跑 Decoder 的 SWA Bounded Replay 来构建局部 SWA KV
+        (最后一个 token 走完 40 层,产出第一个回答 token)。
+      </p>
+      <ul>
+        <li><b>Prefill</b>:主体计算 ≈ 20/40 = 一半,官方口径每 token 激活 8B 参数;</li>
+        <li><b>Decode</b>:新 token 仍要过 Encoder 产 KV 增量、再过 20 层 Decoder,即完整 40 层(16B/token),<b>CED 不减半 Decode</b>;</li>
+        <li>上下文 4K → 1M(256 倍),单 token Decode FLOPs 只增约 25%(解码计算不再随上下文线性增长;端到端延迟还受 KV 读取、通信、调度影响)。</li>
+        <li><b>SWA Bounded Replay 的另一半用途</b>:decoder 各层的 SWA KV 只能由本层隐状态现算,但窗口只有 128 槽、大小与上下文无关——于是会话挂起/迁移/换 checkpoint 时,SWA KV 直接丢弃<b>不持久化</b>;恢复时只需把最近 128 个 token 重新过一遍 Decoder(replay),40 层滑窗缓存即重建完毕。因此它不占随长度增长的持久化存储(持久化 KV 由此降到上一代 ≈ 1/8)。背后的判据:<b>能不能便宜地重算,决定了要不要存</b>——SWA 能(128 token 重放即可),global KV 不能(重算要把全部历史重跑一遍 Encoder),所以后者才需要 FP4 + 跨层共享这些极限压缩手段。</li>
+      </ul>
+    </section>
+
+    <section class="card" id="attn">
+      <h2><span class="no">4</span>Latent Attention 与 CSA²</h2>
+
+      <h3>4.1 核心认知:SWA × CSA²,一次注意力 = 两路 KV 拼接</h3>
+      <p>
+        <b>SWA 与 CSA² 不是两种互斥的注意力模式,而是每次注意力同时存在的两路 KV 来源</b>:
+        L2–L39 的每个注意力层,本层自产的滑窗 KV 与组内共享的压缩检索 KV 拼接后,由 Q 统一打分、
+        同一个 softmax 归一(分母外加 attn_sink 一项)、统一加权求和——一次 <code>sparse_attn</code> 完成:
+      </p>
+      <table>
+        <tr><th></th><th>SWA 分支(局部,细)</th><th>压缩检索分支(全局,粗,即 CSA² 管的就是它)</th></tr>
+        <tr><td>覆盖范围</td><td>最近 <b>128</b> 个 token</td><td>全部历史中检索出的 <b>Top-512</b> 个压缩位置</td></tr>
+        <tr><td>KV 来源</td><td><b>本层现算</b>:<code>wkv</code>(5120→512),40 层各自独立权重、独立缓存</td><td>仅组首 Full 层(<b>L2/L8/L14/L20</b>)的 compressor 产出,组内其余层纯读缓存</td></tr>
+        <tr><td>精度</td><td>FP8</td><td>FP4(main KV 288 B/条 + index K 68 B/条)</td></tr>
+        <tr><td>缓存形态</td><td>每层 128 槽环形缓冲(40 层 ≈ 2.6 MB/序列,<b>与上下文长度无关</b>;挂起时丢弃,恢复时 replay 最近 128 token 重建)</td><td>随长度增长的全局缓存(合计 <b>890 B/token</b>,推导见 §6)</td></tr>
+        <tr><td>L0/L1/MTP</td><td>有(是唯一分支,故称"纯 SWA 层")</td><td>无(compress_ratio=0,整支跳过)</td></tr>
+      </table>
+      <p>
+        即每个 query 最多看 128 + 512 = <b>640</b> 个位置:近处是"本层视角"的细粒度原始 KV,
+        远处是"组首/encoder 视角"的粗粒度压缩 latent。两路位置有重叠——最近 128 个 token 在两路各有一份
+        副本(投影不同、不去重,都进同一个 softmax);唯一的可见性限制是组级因果掩码:一个压缩组要等
+        query 越过组内最后一个 token 才对它可见。
+      </p>
+      <p>
+        控制这条全局分支粒度的旋钮是逐层配置的 <code>compress_ratios</code>(43 项,含 3 个 MTP)。
+        它身兼两职:<b>全局分支的开关</b> + <b>源层的 token 合并比</b>:
+      </p>
+      <table>
+        <tr><th>取值</th><th>层</th><th>含义</th></tr>
+        <tr><td><b>0</b></td><td>L0/L1/MTP</td><td>全局分支整支关闭,纯 SWA。开头两层隐状态近词嵌入、上下文未整合,全局检索没有意义;局部的交给滑窗 + Engram(L1),还省了 indexer 计算与 Top-512 读取的开销;MTP 草稿天然只看局部</td></tr>
+        <tr><td><b>2</b></td><td>L2–L19</td><td>encoder 组:源层 compressor 把 <b>2 个 token 池化成 1 条</b> latent,条目数减半(浅层全局注意力容忍度高)</td></tr>
+        <tr><td><b>1</b></td><td>L20–L39</td><td>decoder 组:逐 token 一条、<b>不合并</b>(wgate 退化为无,纯投影)——最接近输出的 20 层唯一的长程记忆,不再压序列维;压缩靠通道(5120→512)、层共享(20→1)、FP4 三个维度承担</td></tr>
+      </table>
+      <p class="src">
+        连带影响:压缩缓存条目数 = S/m;压缩条目的 RoPE 取组首 token 位置(第 j 组取 j×m);indexer 打分粒度 = 压缩条目;
+        r=0 的层禁用 YaRN(θ=10000),r&gt;0 的层整层用 θ=160000 + YaRN。注意 m 与 latent attention(通道压缩)、
+        CSA² 层间共享是三个独立旋钮,别混为一谈。
+      </p>
+      <p class="src">
+        边界细节(奇数长度怎么办):m&gt;1 时末尾<b>凑不满一组的 token 不硬压</b>——余数落进 compressor 的
+        <code>kv_state</code>/<code>score_state</code> 状态缓冲,等下一个 token 凑满再池化(组边界是纯位置性的,
+        一条 latent 可以横跨 prompt/生成边界,如"prompt 末 token + 首个生成 token")。
+        落单期间它不进压缩缓存、不参与全局分支检索,但必然躺在每层的 SWA 窗内:组最晚在下一个 token 到达时凑满,
+        而滑窗要 128 步后才把它覆盖——两套缓存有 ~127 步的交接重叠带,<b>任何时刻都不存在"谁都看不见"的 token</b>
+        (新靠 SWA、老靠压缩缓存,交接期两路都在)。
+      </p>
+
+      <h3>4.2 单层结构:latent attention(<code>layers.N.attn.*</code>)</h3>
+      <ul>
+        <li><b>Q 低秩</b>:<code>wq_a</code>(5120→1280)→ <code>q_norm</code> → <code>wq_b</code>(1280→32768 = 64×512);</li>
+        <li><b>单 KV 头</b>:<code>wkv</code>(5120→512)→ <code>kv_norm</code>;每个位置只有<b>一个</b> 512 维 latent,64 头共享,K 与 V 是同一个向量;</li>
+        <li><b>RoPE</b> 只加在末 64 维(<code>qk_rope_head_dim</code>),前 448 维是 NoPE;</li>
+        <li><b>attn_sink</b>:64 维逐头 sink logit(softmax 分母多一项);</li>
+        <li><b>输出投影分组低秩</b>:输出 reshape 成 8 组(每组 8 头×512=4096),<code>wo_a</code> 块对角(4096→1024)→ <code>wo_b</code>(8192→5120);输出后对 rope 尾维做<b>逆旋转</b>(V 向量带着 RoPE);<code>wo_a</code> 在 checkpoint 是 FP8,官方 <code>convert.py</code> 反量化成 bf16 后按块对角 einsum 使用;</li>
+        <li>RoPE 每层只有一组频率:compress_ratio=0 的层(L0/L1/MTP)禁用 YaRN、用基础 rope_theta=10000;compress_ratio&gt;0 的层(L2–L39)<b>整层</b>(Q、SWA 滑窗 KV、压缩 KV 共用)用 compress_rope_theta=160000 + YaRN——名字里的 "compress" 有误导性,压缩 KV 的"位置间隔更大"是靠<b>旋转位置取组首 token</b>(第 j 组取位置 j×m)体现的,不是单独的 theta。</li>
+      </ul>
+
+      <h3>4.3 CSA²:压缩检索分支的跨层复用(Full / Reindex / Reuse)</h3>
+      <p>
+        每个注意力层仍然计算自己的 Main Query 和 SWA(128)KV,但全局稀疏注意力所用的
+        <b>main KV、indexer K、Top-K 索引</b>可以跨层共享。三种静态模式逐层指定:
+      </p>
+      <table>
+        <tr><th>模式</th><th>做什么</th><th>本模型对应层</th></tr>
+        <tr><td><b>Full</b></td><td>自产 main KV;indexer K 由 main KV 投影;跑 indexer 产 Top-512(唯一能产出可复用 cache 的模式)</td><td><code>kv_source_layer_ids</code> = {2, 8, 14, 20}</td></tr>
+        <tr><td><b>Reindex</b></td><td>main KV 与 indexer K 复用前序层,用本层 indexer Q 重算 Top-K</td><td>{24, 28, 32, 36}</td></tr>
+        <tr><td><b>Reuse</b></td><td>main KV、indexer K、Top-K 全复用,不跑 indexer</td><td>其余 30 层</td></tr>
+      </table>
+      <p>
+        Encoder 侧:18 个 CSA² 层(L2–L19)分 3 组,每组一个 Full 层,压缩率 m=2。
+        Decoder 侧:仅 L20 为 Full(其 compressor 吃第 20 层注意力子层输入,即 CED 公式的实现),
+        4 个 Reindex + 15 个 Reuse,m=1。与上一代 CSA 相比,CSA² 删掉了压缩窗口重叠、
+        压缩阶段的绝对位置编码,indexer K 直接从 main KV 投影,并把 KV 共享与 Top-K 复用解耦。
+      </p>
+
+      <h3>4.4 分层稀疏索引(Hierarchical Sparse Indexer)</h3>
+      <p>
+        indexer(32 头 × 128 维:<code>indexer.wq_b</code> 1280→4096、<code>wk</code> 512→128、<code>k_norm</code>、<code>weights_proj</code> 5120→32)
+        若每次扫全部百万 token 自身也会成为瓶颈。因此 Decoder 的第一个 Full 层(L20)扫描全部可见位置时,
+        除了自己的 Top-512,还按 8 token 一块取最大 indexer score,选出得分最高的 <b>2048 块 = 16,384 个位置</b>
+        组成共享候选池(<code>candidate_source_layer=20</code>)。后续 Reindex 层只在候选池内打分选 Top-512——
+        <b>索引计算量从随上下文线性增长变成近似常数</b>。
+        实现上,块得分取块内最大 indexer score;含最新位置的未满块会被强制保留(pin 为 +inf),
+        防止它因位置不满而被老的满块挤出候选池。
+      </p>
+
+      <h3>4.5 FP4 Main KV Cache 与 compressor</h3>
+      <ul>
+        <li>main KV / 压缩 latent:<b>FP4 E2M1</b>,每 16 通道一个 E4M3 scale(MXFP4),无第二级全局 scale,在 RoPE 之后量化;</li>
+        <li>indexer K:FP4 E2M1,每 32 通道一个 E8M0 scale(纯 2 的幂,只用于 Top-K 排序);</li>
+        <li>SWA KV 保留 <b>FP8</b>(对整个 post-RoPE 向量量化,RoPE 尾维在内);"长程粗、局部细";indexer Q 推理时同样量化到 FP4;</li>
+        <li>数值依据:归一化后 512 维 latent 的 L2 范数上限 √512,训练期实测最大幅值 ≈ 10,不需要全局 scale;</li>
+        <li><b>SWA Bounded Replay</b>:只 replay 最近 128 个 token,把 SWA 截断在该段内,使 SWA KV 从持久化 cache 中移除(持久化 KV 降到上一代 ≈ 1/8)。</li>
+      </ul>
+      <p>
+        实现上,compressor 的工作方式是:m&gt;1 的层(L2–L19)用 <code>compressor.wkv</code>/<code>wgate</code>(fp32)把 m 个连续 token
+        经<b>学习到的 softmax 门控池化</b>成一个 latent;m=1 的层(L20–L39)退化为纯投影(bf16,无 wgate)。
+        compressor 输出的是<b>未加 RoPE</b> 的 latent:indexer 先拿它投影出 index K 写入缓存,然后才对 latent 施加 RoPE、
+        量化 FP4 写入 main KV 缓存——同一份存储先读后写,两种用途各取所需形态。
+      </p>
+    </section>
+
+    <section class="card" id="rope">
+      <h2><span class="no">5</span>位置编码:部分维 RoPE + 分频段 YaRN</h2>
+
+      <h3>5.1 施加范围:512 维里只有末 64 维旋转</h3>
+      <ul>
+        <li>head_dim 512 = <b>448 维 NoPE + 64 维 RoPE</b>(<code>qk_rope_head_dim</code>):Q(64 头)与共享 KV latent 都只旋转末 64 维,前 448 维是纯内容维——位置信号与内容信号在通道上分离;</li>
+        <li>旋转方式:相邻两维配成复数,乘位置相位 e<sup>i·p·θᵢ</sup>,共 32 个频率 θ<sub>i</sub> = base<sup>−2i/64</sup>;</li>
+        <li>indexer 的 Q/K(128 维)同样只旋尾 64 维,并与主注意力<b>共用同一套频率表</b>(<code>indexer.freqs_cis = self.freqs_cis</code>)——保证检索打分与正式注意力的位置口径一致;</li>
+        <li>输出端有<b>逆旋转</b>:V(= KV latent 本身)带着 RoPE 相位,加权求和后对输出尾 64 维乘共轭相位还原——残差流中的表示因此不含位置相位,缓存也能保持统一的旋转形态(<code>apply_rotary_emb(o, freqs, inverse=True)</code>)。</li>
+      </ul>
+
+      <h3>5.2 频率配置:每层一组,共两档</h3>
+      <table>
+        <tr><th>层</th><th>base θ</th><th>YaRN</th><th>理由</th></tr>
+        <tr><td>L0 / L1 / MTP(compress_ratio=0)</td><td>10,000</td><td>禁用</td><td>只看 128 滑窗,没有长程外推需求</td></tr>
+        <tr><td>L2–L39(compress_ratio&gt;0)</td><td><b>160,000</b></td><td>启用(factor 16,原始 65,536)</td><td>全局分支要面对 1M 上下文;<b>整层</b>(Q、SWA KV、压缩 KV)共用这一组频率</td></tr>
+      </table>
+      <p>
+        压缩条目的旋转位置取<b>组首 token</b>(第 j 组取位置 j×m,"一个 latent 代表组内第一个 token")——
+        压缩 KV 的"位置间隔更大"由此体现,而非单独的 θ;config 里 <code>compress_rope_theta</code> 的名字有误导性,
+        它实际是"所有带压缩分支的层的 θ"。
+      </p>
+
+      <h3>5.3 YaRN:按频段分别插值(65,536 → 1,048,576)</h3>
+      <p>对 32 个频率按"该维在训练长度 65,536 内转几圈"分三段(<code>precompute_freqs_cis</code> 的 <code>original_seq_len &gt; 0</code> 分支):</p>
+      <table>
+        <tr><th>频段</th><th>判据(训练长度内圈数)</th><th>处理</th></tr>
+        <tr><td>高频</td><td>&gt; 32 圈(<code>beta_fast=32</code>)</td><td><b>频率不动</b>——波长远小于训练长度,没有外推问题,保住局部位置区分度</td></tr>
+        <tr><td>低频</td><td>&lt; 1 圈(<code>beta_slow=1</code>)</td><td><b>频率 ÷ 16</b>——一圈都没转完的纯外推段,直接位置插值</td></tr>
+        <tr><td>中间</td><td>1–32 圈</td><td>线性 ramp 渐变过渡(两段之间不平滑切换会引入伪周期)</td></tr>
+      </table>
+      <p>
+        注意:本模型<b>没有</b>采用原版 YaRN 论文的 attention 温度缩放——<code>softmax_scale = 512<sup>−0.5</sup></code> 固定不变,
+        温度补偿可能已在训练中吸收。
+      </p>
+
+      <h3>5.4 视觉塔:独立的 2D RoPE</h3>
+      <p>
+        ViT 用二维 RoPE:h、w 两个方向各有一套位置频率(θ=10,000),双向注意力;
+        配对方式是"前后半配对"(chunk 两半)而非语言侧的"相邻两维配对",两套实现各自独立
+        (<code>vision.py</code> 的 <code>apply_rotary</code> vs <code>model.py</code> 的 <code>apply_rotary_emb</code>)。
+      </p>
+    </section>
+
+    <section class="card" id="kv">
+      <h2><span class="no">6</span>KV Cache 显存账:890 B/token 的推导</h2>
+      <table>
+        <tr><th>项</th><th>通道</th><th>数值格式</th><th>缩放</th><th>字节/条目</th></tr>
+        <tr><td>main KV / 压缩 latent</td><td>512</td><td>FP4 E2M1(0.5 B/通道)</td><td>每 16 通道 1 个 E4M3 scale → 32 B</td><td><b>288</b></td></tr>
+        <tr><td>indexer K</td><td>128</td><td>FP4 E2M1</td><td>每 32 通道 1 个 E8M0 scale → 4 B</td><td><b>68</b></td></tr>
+      </table>
+      <p>
+        每 token 的条目数:Encoder 的 3 组 Full 各按 m=2 摊(3 × 1/2 = 1.5);
+        Decoder 20 层共享 1 份且 m=1(1 × 1 = 1);合计 <b>2.5 条/token</b>:
+      </p>
+      <p style="text-align:center" class="math">
+        Encoder 3×½×356 = 534 B &nbsp;+&nbsp; Decoder 1×1×356 = 356 B &nbsp;=&nbsp; <b>890 B/token</b>
+      </p>
+      <p>
+        对照 DeepSeek-V4-Flash 的 3514 B/token:890 / 3514 ≈ 25.3%,即 <b>降低约 75%</b>,
+        同显存理论上可容纳 ≈ 3.95 倍上下文。口径是<b>随序列长度增长的那部分</b>(global KV);
+        SWA KV(每层 128 槽 × 512 维 FP8,40 层 ≈ 2.6 MB/序列)是与长度无关的环形缓冲,不计入 per-token 口径。
+      </p>
+    </section>
+
+    <section class="card" id="hc">
+      <h2><span class="no">7</span>Hyper-Connections(Single-Pass mHC)</h2>
+      <p>
+        残差流不是单向量,而是 <b>hc_mult=4 份并行副本</b>(<code>layers.N.hc_{attn,ffn}_{fn,base,scale}</code>,fp32):
+      </p>
+      <ul>
+        <li>每个子层前后各一次可学习混合:<code>hc_pre</code> 把 4 份压成子层输入,<code>hc_post</code> 把输出扩回 4 份,并经 <code>comb</code> 矩阵(Sinkhorn 20 次迭代成双随机)混入残差;</li>
+        <li>混合系数由流本身算出:<code>hc_fn</code>(24×20480)+ <code>hc_base</code>(24)+ <code>hc_scale</code>(3);24 = (2 + hc_mult) × hc_mult:pre(4)+ post(4)+ comb(16);投影前对<b>整个展平的 4×5120 流</b>逐 token 算一个 RMS 归一化统计量(不是逐副本);</li>
+        <li><b>Single-Pass</b>:子层算出的系数给<b>下一个</b>子层用(输入混合改用上一层产出的系数),解除"先算系数再混合"的数据依赖:
+          <br><span class="math">X<sub>l+1</sub> = B<sub>l</sub>·X<sub>l</sub> + C<sub>l</sub>·F<sub>l</sub>(A<sub>l−1</sub>·X<sub>l</sub>)</span></li>
+        <li>部署期融成 Mega-mHC kernel(残差更新 + 输入混合 + 系数预测 + Pre-Norm + FP8 转换),激活内存流量从 (4n+4)d 降到 <b>(2n+2)d</b>(理论下界,n=4),约降一半。</li>
+      </ul>
+    </section>
+
+    <section class="card" id="engram">
+      <h2><span class="no">8</span>Engram:参数化 n-gram 记忆</h2>
+      <p>
+        对固定短语、实体名、代码模式等高度重复的局部知识,不必让 Transformer 每次用多层
+        attention + MoE 重新推导——直接拿最近几个 token 去巨型可训练 embedding 表里查。
+        MoE 是 <i>Conditional Computation</i>(按隐状态选专家),Engram 是 <i>Conditional Memory</i>
+        (按 n-gram 查记忆);<b>不是 RAG</b>,是端到端训练的内部记忆表。
+      </p>
+      <div class="callout">
+        <b>一个准确的心智模型:Engram ≈ 在 L1、L14 两个 Block 前面各"硬插"了一个记忆层。</b>
+        代码上就是 <code>h = engram(h, hash_ids)</code> 之后原样 <code>h = block(h)</code>——L1/L14 本身是
+        完全标准的 Block(latent attention + MoE + HC),<b>结构与权重上零改动(<code>Block.forward</code> 里没有
+        任何 engram 逻辑,调用点在 Transformer 主循环)</b>;当然,该层及其后的所有计算都运行在注入后的残差流上
+        (这正是目的——包括该 Block 用注入后的 h 算出的 HC 混合系数)。
+        这个插入层与正常 Block 的差别只在:输入只依赖当前位置最近 3 个 token 的 <b>id</b>(哈希查表,
+        不读隐状态)、计算量恒定(24 次 lookup + 一次投影,不随上下文增长)、写入是纯加法
+       (<code>h += gate × value</code>)。上下文感知只剩 gate 一个标量;图像 token 处 gate=0 直接跳过。
+      </div>
+      <h3>7.1 计算流程(五步)</h3>
+      <ol>
+        <li><b>Tokenizer 压缩</b>:原始 token id 经规范化管道映射为压缩 id(只用于构造查询键,不改模型 tokenizer);管道为 NFKC → NFD → 去口音 → 小写 → 空白合并(含"单空格 token"哨兵保护),129,280 个 token 收敛出 <b>99,092</b> 个唯一 key(config 的 <code>engram_compressed_vocab_size</code>,哈希乘子由它导出,不匹配会静默重哈希整张表);</li>
+        <li><b>后缀 n-gram</b>:当前位置取最近 token 构造 2/3/4-gram(不含未来 token,保持因果;n-gram 不跨越图像 span——遇到 dead token 即截断填 pad);</li>
+        <li><b>多头哈希</b>:每种阶数 8 个 hash head,共 24 次 lookup,拼接出 24×256 = 6144 维——碰撞在 8 个独立 head 下同时撞上的概率极低;哈希为"奇数乘子 × 压缩 id 后 XOR 滚动"(每层的乘子由 <code>seed=10007×layer_id</code> 的 RNG 生成),每个 (阶数, head) 占有自己<b>质数大小、互不相交</b>的桶区间(从 1600 万起依次取未用过的质数);</li>
+        <li><b>投影 + 上下文门控</b>:<code>engram.wkv</code>(6144→25600)投出 4 份 HC 副本各自的 key + 1 份共享 value;门控 = sigmoid(signed_sqrt(归一化点积))——n-gram 提供候选记忆,当前隐状态决定写不写;</li>
+        <li><b>门控写入残差流</b>(V4.1 删除了原论文门控后的短因果卷积);图像 token 不参与(engram_mask 关门)。</li>
+      </ol>
+      <h3>7.2 本模型配置</h3>
+      <table>
+        <tr><th>项</th><th>值</th></tr>
+        <tr><td>位置 / 数量</td><td>第 1、14 层各一个(零起始编号)</td></tr>
+        <tr><td>哈希表</td><td>FP8 E4M3,3.84 亿 × 256 / 层(逐行 1×32 UE8M0 缩放),两层合计 ≈ 196 GB,<b>占全模型近一半体积</b></td></tr>
+        <tr><td>多分支用法</td><td>所有 HC 分支共享记忆表与 value 投影,各分支有自己的 key 通路(<code>wkv</code> 一次投出 4 key + 1 value)</td></tr>
+        <tr><td>推理部署</td><td>记忆表主要驻留 Host Memory,后台 RDMA 预取;第二个模块放 L14 留出更长通信隐藏窗口</td></tr>
+        <tr><td>注入位置</td><td>在 L1/L14 所属 Block 的<b>入口</b>(attention 之前)直接写入 4 份 HC 残差流:<code>h = engram(h, hash_ids)</code>;门控的归一化点积<b>逐 (token, hc 副本)</b> 计算,不跨副本联合归一</td></tr>
+      </table>
+      <p class="src">
+        收益(官方/原论文):释放早期网络深度与 attention 容量(Multi-Query NIAH 84.2 → 97.0);
+        参数扩容但不同比增加每 token 计算——一条不同于扩 dense / MoE 的 scaling 路径。
+      </p>
+    </section>
+
+    <section class="card" id="moe">
+      <h2><span class="no">9</span>MoE 与路由</h2>
+      <ul>
+        <li>每层 <code>ffn.gate.weight</code>(384×5120)+ <code>gate.bias</code> + <code>gate.bias_vl</code>(fp32,noaux_tc 校正;图像 span 内 token 用 bias_vl);</li>
+        <li>打分函数 <span class="math">√softplus(x/τ)</span>(sqrtsoftplus,τ=<code>gate_temp</code>=1);bias 只参与选专家、不进权重;权重 = 原始分数归一化 × 1.5(routed_scaling_factor);</li>
+        <li>路由专家 SwiGLU(w1/w3:5120→2304,w2:2304→5120),<b>FP4 E2M1 量化</b>;1 个共享专家(FP8)每 token 必过;</li>
+        <li>专家前向带 <code>swiglu_limit=10</code> 的 clamp(来自训练侧 fp8/fp4 激活值域约束);up 分支(w3)<b>双边</b> clamp 到 ±10,gate 分支(w1)只封<b>上界</b>(≤10),与训练 kernel 一致;</li>
+        <li>MTP 层是缩版 MoE:128 个路由专家选 3。</li>
+      </ul>
+    </section>
+
+    <section class="card" id="mtp">
+      <h2><span class="no">10</span>DSpark MTP(推测解码草稿)</h2>
+      <ul>
+        <li><code>num_nextn_predict_layers=3</code>,前缀 <code>mtp.0/1/2</code>(layer_id 40/41/42),每层是完整 Block(注意力 + MoE),embed/head 与主干共享;</li>
+        <li><code>mtp.0.main_proj</code>(15360→5120)+ <code>main_norm</code>:把 target 层(37/38/39)的<b>注意力输入</b>(非输出)拼接投影成草稿流输入;实际取的是各 target 层<b>块入口处的残差流对 4 份 HC 副本求 mean</b>(<code>main_hiddens.append(h.mean(dim=2))</code>,在块执行前收集);</li>
+        <li>注意力为 DSparkAttention:block_size=5 的块级草稿,窗口外只看本块;草稿块的可见范围 = 主干 128 滑窗 + 本块 5 个位置;prefill 时 MTP <b>只 seed 滑窗 KV、不产生草稿</b>;</li>
+        <li><code>mtp.2</code> 独有 <code>norm</code>、<code>markov_head</code>(embed/head 各 129280×256,一阶马尔可夫 logit 偏置)、<code>confidence_head.proj</code>(5376→1,给草稿 token 打置信度);noise_token_id=128799;草稿块的 5 个输入位置首 token 是真实 token、其余填 noise token;markov logits 逐位<b>加性偏置</b>后即采样下一位,confidence 由块输出 hidden 与各位 markov_embed 拼接(5120+256)投影得到。</li>
+      </ul>
+    </section>
+
+    <section class="card" id="vit">
+      <h2><span class="no">11</span>视觉塔(ViT + aligner)</h2>
+
+      <h3>11.1 结构参数</h3>
+      <ul>
+        <li><code>vision.*</code>:32 层 ViT(hidden 1024、16 头、patch 14 → <code>patch_embed.proj</code> 1024×588),MLP SwiGLU 融合(w1 [5632,1024]、w2 [1024,2816]),标准 pre-norm,<b>bf16 未量化</b>;注意力是<b>双向</b>的并带 <b>2D RoPE</b>(h/w 两个位置频率);patch_embed 与注意力投影带 bias,MLP 的 w1/w2 <b>无</b> bias;max_image_tokens=1024;</li>
+        <li><code>aligner.w1/w2</code>(9216→5120→5120,带 bias):3×3 邻域(downsample_ratio=3,边缘 pad 补齐)拼 9216 维投到语言模型;中间激活是 <b>GELU</b>;</li>
+        <li><code>image_start/image_end/image_newline</code>:5120 维可学习边界嵌入;image_token_id=129264。</li>
+      </ul>
+
+      <h3>11.2 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
+      <p>
+        这个 ViT <b>没有</b>经典 ViT 的绝对位置嵌入(<code>patch_embed</code> 是裸 Linear,无任何 additive position embedding)。
+        位置感经由两个间接渠道形成:
+      </p>
+      <ul>
+        <li><b>ViT 内部的 2D RoPE</b>:只作用于每层注意力的 Q/K(影响 patch 间的关注模式),不改变特征向量的内容基底;</li>
+        <li><b>aligner 的 3×3 折叠</b>:空间结构被折叠进<b>通道维</b>——每个输出 token 天然对应一个 3×3 patch 块,且按行主序(光栅扫描)排列。</li>
+      </ul>
+      <p>
+        因此进入 LLM 的图像 token 向量<b>不带显式位置编码</b>:图像内部的 2D 结构已由 ViT+aligner 预消化成特征与顺序;
+        进入文本流后,LLM 的 RoPE 按序列位置统一处理——<b>跨 token 的位置关系归 LLM 管,图像内部的 2D 结构归 ViT 管</b>。
+      </p>
+
+      <h3>11.3 LLM 侧如何区分图像 token 与文本 token</h3>
+      <p>
+        一切源于 <code>image_processor</code> 准备好的 <code>token_types</code>(文本 = −1,图像 span ≥ 0),
+        派生出 <code>image_mask</code>,在三处区别对待:
+      </p>
+      <table>
+        <tr><th>机制</th><th>对图像 token 的区别对待</th></tr>
+        <tr><td><b>Embedding 替换</b></td><td>图像 span 位置的 input_ids 全是 <code>image_token_id</code>(129264),embed 后<b>整段被 aligner 特征覆写</b>(<code>merge_image_embeddings</code>);span 边界位置填入可学习的 <code>image_start/end/newline</code> 向量</td></tr>
+        <tr><td><b>Engram 关门</b></td><td>图像位置 gate=0,不写入 n-gram 记忆;且 n-gram 哈希遇图像 span 即截断(DEAD token),不跨图像组词</td></tr>
+        <tr><td><b>MoE 路由换 bias</b></td><td>图像 span 内的 token 选专家时用 <code>gate.bias_vl</code> 而非 <code>gate.bias</code>(<code>noaux_tc_for_vl</code>)——图像 token 的专家偏好有独立校正</td></tr>
+      </table>
+      <p>
+        注意力本身<b>不做</b>特殊掩码:图像 token 在注意力里就是普通位置(占滑窗、进压缩缓存、可被检索)。
+        多模态的区分全部集中在"入口表示"(替换 embedding)与"路由/记忆"(bias_vl、engram_mask)两处。
+      </p>
+    </section>
+
+    <section class="card" id="quant">
+      <h2><span class="no">12</span>量化格式与权重命名</h2>
+      <table>
+        <tr><th>类别</th><th>格式</th><th>覆盖权重</th></tr>
+        <tr><td>直接可读(BF16/F32)</td><td>未量化</td><td><code>embed/head</code>、全部 RMSNorm 增益、路由器、HC、attn_sink、compressor/indexer(个别 FP8)、视觉塔</td></tr>
+        <tr><td>FP8 E4M3 + UE8M0 块量化</td><td>32×32 块,scale = 2^(e−127)</td><td><code>wq_a/wq_b/wkv/wo_a/wo_b</code>、共享专家 w{1,2,3}、<code>engram.wkv</code>、<code>indexer.wq_b</code>、mtp 对应项</td></tr>
+        <tr><td>FP4 E2M1 路由专家</td><td>I8 打包(每字节 2 值,低半字节为偶数列)+ UE8M0 行块 1×32;值表 {0,±0.5,±1,±1.5,±2,±3,±4,±6}</td><td><code>layers.N.ffn.experts.E.w{1,2,3}</code>(+ <code>.scale</code>),mtp 128 专家同格式</td></tr>
+      </table>
+      <p class="src">
+        反量化(<code>llm_lens.dequant_block</code> / <code>unpack_fp4_e2m1</code>)已与官方 <code>inference/convert.py</code> 对拍逐值一致。
+        最大的单体权重是两张 engram 哈希表(各 ~92 GiB),只建议按行抽样读取。
+      </p>
+    </section>
+
+    <section class="card" id="optim">
+      <h2><span class="no">13</span>优化器与后训练(官方)</h2>
+      <table>
+        <tr><th>参数类型</th><th>优化器</th><th>理由</th></tr>
+        <tr><td>RMSNorm 及非矩阵参数</td><td>AdamW(wd=0.1)</td><td>常规</td></tr>
+        <tr><td>主干线性矩阵</td><td>Muon(wd=0.1,RMS rescale 0.18)</td><td>矩阵参数的预条件更新</td></tr>
+        <tr><td>Q / K 矩阵</td><td>Head-wise Muon</td><td>按注意力头各配预条件器,适应头间梯度异质性</td></tr>
+        <tr><td>Engram / Embedding / Head</td><td>Nesterov Momentum + Sinkhorn Balancing</td><td>只需一份 momentum buffer,避免 Adam 两套状态吃掉超大表的显存(行列缩放使更新矩阵行/列 RMS ≈ 1)</td></tr>
+      </table>
+      <ul>
+        <li><b>可控推理强度</b>:任务 reward 之外加与 Reasoning Effort 相关的长度 reward——Effort 越低、单位 token 惩罚越重(Effort 25 对 1 万推理 token 的惩罚约是 Effort 100 的 20 倍);API 档位 Low/High/Max 对应 Effort 50/75/100;</li>
+        <li><b>异步 RL</b>:Sample-level Dispatch 解决长尾轨迹拖住整组的问题;控制并发缓解长度偏差;限制 off-policy 比例并 mask 掉过期 token 的 loss;rollout 可在任意 token 边界中断续跑(保留 KV 与路由);</li>
+        <li><b>大规模 On-policy Distillation</b>:40+ 个 teacher(可不同架构、动态切换),异步 rollout 中可改数据配比;</li>
+        <li><b>效果</b>:Effort 25→100,八项推理 benchmark 平均 Pass@1 67.1% → 76.3%,DeepSWE 66.0 → 74.2,Terminal-Bench 82.4 → 90.6(输出 token 约 ×2.5);提升集中在低中 Effort 段,80 以上性价比下降。</li>
+      </ul>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        信息来源:本仓库结构笔记 <code>docs/ds_v4_1_flash.md</code>、官方开源发布
+        <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash" style="color:var(--accent)">deepseek-ai/DeepSeek-V4.1-Flash</a>
+        (config.json / inference 推理代码 / safetensors 索引,2026-09-20 逐项核对)、
+        官方技术报告 <i>DeepSeek-V4.1-Flash: Pushing the Limits of KV Cache Compression</i>(arXiv:2609.19969);
+        脉络参照知乎文章《KV Cache 降低 75%:DeepSeek-V4.1-Flash 全新架构解读》。<br>
+        llm-lens · 源码见 <a href="https://github.com/treert/llm-lens" style="color:var(--accent)">GitHub</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
