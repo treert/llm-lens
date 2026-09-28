@@ -117,6 +117,13 @@
     .tip li { margin: 2px 0; }
     .tip code { background: rgba(255,255,255,0.14); border: none; color: #cdd6ff; padding: 0 4px; }
     .tip b { color: #a9bcff; }
+    pre {
+      background: #262b3a; color: #e8eaf2; border-radius: 10px; padding: 14px 18px;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 12.5px; line-height: 1.65; overflow-x: auto; margin: 12px 0;
+    }
+    pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+    pre .cm { color: #7c85a8; }
     footer { border-top: 1px solid var(--border); padding: 20px 0 30px; font-size: 13px; color: var(--text-dim); text-align: center; }
     .src { font-size: 12.5px; color: var(--text-dim); }
   </style>
@@ -773,12 +780,132 @@
 
     <section class="card" id="mtp">
       <h2><span class="no">11</span>DSpark MTP(推测解码草稿)</h2>
+      <p>
+        <code>num_nextn_predict_layers=3</code>,前缀 <code>mtp.0/1/2</code>(layer_id 40/41/42),每层是完整 Block
+        (DSparkAttention + 缩版 MoE + HC),embed/head 与主干共享。目标:每个 decode 步,<b>一次前向产出
+        block_size=5 个草稿 token + 各自置信度</b>,交主干并行验证。注意开源 repo 只实现前向
+        (<code>forward_spec</code>),<b>accept/reject 的验证循环不在发布范围内</b>(官方注释:
+        "the speculative-decoding loop itself is out of scope for this repo")。
+      </p>
+
+      <h3>11.1 一步 decode 的数据流总览</h3>
+      <div class="arch">
+        <div class="arch-row">
+          <div class="arch-label">主干(本步)</div>
+          <div class="blk blk-dec">token t 正常过 40 层;在 <b>L37 / L38 / L39 的块入口</b>收集残差流(注意力<b>输入</b>,非输出),对 4 份 HC 副本求 mean → 各 5120 维(<code>main_hiddens.append(h.mean(dim=2))</code>)</div>
+        </div>
+        <div class="arrow-down">↓ 按层序 cat → <b>main_hidden [15360]</b></div>
+        <div class="arch-row">
+          <div class="arch-label">mtp.0 · 入口投影</div>
+          <div class="blk blk-mtp">
+            <b>main_proj</b>(15360→5120)→ <b>main_norm</b> → <b>main_x</b>:主干信息流,供三层注意力各自产滑窗 KV<br>
+            草稿输入 = [<b>真实 token t</b>, noise×4] → <b>embed</b>(与主干共享)→ 复制成 4 份 HC 残差流
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="arch-row">
+          <div class="arch-label">mtp.0 / mtp.1<br>两个标准 Block</div>
+          <div class="blk blk-mtp">
+            <b>DSparkAttention</b>:Q = 草稿 5 位置;KV = 本层 128 滑窗环(由 main_x 经<b>本层</b> wkv 现算写入)⊕ 本块 5 位置(<b>互相可见,无块内因果掩码</b>)→ 分组低秩输出;<br>
+            <b>MoE</b> 缩版(128 专家选 3 + 共享)+ <b>HC</b> 混合,与主干 Block 同构
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="arch-row">
+          <div class="arch-label">mtp.2 · 输出段</div>
+          <div class="blk blk-mtp">
+            同样的 Block → <b>norm</b> → <b>head</b>(与主干共享,fp32 logits)→ 5 个位置的 logits<br>
+            <b>逐位采样</b> i=0…4:<code>markov_head</code>(上一位 token)给 logits 加<b>加性偏置</b> → sample → 草稿 token i+1<br>
+            <b>confidence_head</b>:合并后 hidden(5120)⊕ 各位 markov_embed(256)→ proj(5376→1,fp32)→ 每个草稿 token 一个置信度
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="arch-row">
+          <div class="arch-label">输出</div>
+          <div class="blk blk-io"><b>6 个 token id</b>(真实 t + 5 个草稿)+ logits + 5 个置信度 → 交主干验证(实现不在本 repo)</div>
+        </div>
+      </div>
+
+      <h3>11.2 三层内部结构:哪些权重各有几份</h3>
+      <table>
+        <tr><th>组件</th><th>mtp.0(L40)</th><th>mtp.1(L41)</th><th>mtp.2(L42)</th></tr>
+        <tr><td>DSparkAttention(<code>wq_a/wq_b/wkv/wo_a/wo_b/attn_sink</code>)</td><td>✓ 独立</td><td>✓ 独立</td><td>✓ 独立</td></tr>
+        <tr><td>MoE(128 路由专家选 3 + 1 共享)</td><td>✓ 独立</td><td>✓ 独立</td><td>✓ 独立</td></tr>
+        <tr><td>HC 混合系数(<code>hc_*</code>)</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td><code>main_proj</code>(15360→5120)+ <code>main_norm</code></td><td><b>✓ 独有</b></td><td>—</td><td>—</td></tr>
+        <tr><td><code>norm</code> + <code>markov_head</code> + <code>confidence_head</code></td><td>—</td><td>—</td><td><b>✓ 独有</b></td></tr>
+        <tr><td>embed / head</td><td colspan="3" style="text-align:center">与主干共享(挂在 mtp 模块上,词表 129,280)</td></tr>
+      </table>
+      <p class="src">
+        即三层 Block 主体同构,<b>差异只在首尾</b>:mtp.0 多一条"主干 → 草稿流"的投影通路,
+        mtp.2 多输出头三件套。中间层 mtp.1 是纯计算层,只加深草稿流的深度。
+      </p>
+
+      <h3>11.3 逐步走一遍:<code>forward_spec</code> 的执行顺序</h3>
+      <ol>
+        <li><b>收集</b>:主干 forward 途中,target 层(37/38/39)块入口各存一份 <code>h.mean(dim=2)</code>,末尾 cat 成 [15360];</li>
+        <li><b>入口</b>(<code>mtp.0.forward_embed</code>):<code>main_x = main_norm(main_proj(main_hidden))</code>;
+          同时构造草稿输入 [<b>t</b>, noise, noise, noise, noise](noise_token_id=128799),过共享 embed 后复制成 4 份 HC 流;</li>
+        <li><b>三层 Block</b>:每层 DSparkAttention 先用 <b>main_x</b> 经本层 <code>wkv</code> 现算 main_kv(RoPE 取<b>主干位置 t</b>,FP8 量化),写入<b>本层自己的</b> 128 槽滑窗环 <code>start_pos % 128</code>;
+          草稿 Q/KV 用<b>未来位置 t+1…t+5</b> 的 RoPE;然后 MoE、HC 与主干 Block 完全相同(草稿纯文本,不传 image_mask、不用 bias_vl);</li>
+        <li><b>输出头</b>(<code>mtp.2.forward_head</code>):<code>hc_pre</code> 合流 → <code>norm</code> → 共享 head 得 5 位 logits;
+          逐位循环:<code>markov_head</code>(已采 token)产出 logit 偏置与 256 维 markov_embed,偏置<b>加</b>到当前位 logits 后采样出下一位——
+          即草稿块内部依赖由马尔可夫链在<b>头部</b>串行化,而不是靠注意力掩码;</li>
+        <li><b>置信度</b>:合并后 hidden 与 5 个 markov_embed 拼接(5120+256)经 <code>confidence_head.proj</code>(fp32)得每个草稿 token 的置信度,供验证阶段决定接受前缀长度;</li>
+        <li><b>prefill 特例</b>:<code>start_pos=0</code> 时三层只对 main_x 做 wkv <b>seed 滑窗环</b>,<code>forward_spec</code> 直接返回 None,不产生草稿。</li>
+      </ol>
+
+      <h3>11.4 DSparkAttention 的可见性与缓存细节</h3>
       <ul>
-        <li><code>num_nextn_predict_layers=3</code>,前缀 <code>mtp.0/1/2</code>(layer_id 40/41/42),每层是完整 Block(注意力 + MoE),embed/head 与主干共享;</li>
-        <li><code>mtp.0.main_proj</code>(15360→5120)+ <code>main_norm</code>:把 target 层(37/38/39)的<b>注意力输入</b>(非输出)拼接投影成草稿流输入;实际取的是各 target 层<b>块入口处的残差流对 4 份 HC 副本求 mean</b>(<code>main_hiddens.append(h.mean(dim=2))</code>,在块执行前收集);</li>
-        <li>注意力为 DSparkAttention:block_size=5 的块级草稿,窗口外只看本块;草稿块的可见范围 = 主干 128 滑窗 + 本块 5 个位置;prefill 时 MTP <b>只 seed 滑窗 KV、不产生草稿</b>;</li>
-        <li><code>mtp.2</code> 独有 <code>norm</code>、<code>markov_head</code>(embed/head 各 129280×256,一阶马尔可夫 logit 偏置)、<code>confidence_head.proj</code>(5376→1,给草稿 token 打置信度);noise_token_id=128799;草稿块的 5 个输入位置首 token 是真实 token、其余填 noise token;markov logits 逐位<b>加性偏置</b>后即采样下一位,confidence 由块输出 hidden 与各位 markov_embed 拼接(5120+256)投影得到。</li>
+        <li><b>可见范围</b>(<code>get_dspark_topk_idxs</code>):整个 128 滑窗环(最旧在前)⊕ 本块全部 5 个位置——
+          <b>块内 5 个位置互相可见、无因果掩码</b>,因为草稿是并行生成的,先后依赖交给头部的马尔可夫采样处理;</li>
+        <li><b>两组位置口径</b>:滑窗环里存的是<b>主干信息流</b>的 KV(main_x 的投影,RoPE 位置 = 主干真实位置);
+          草稿自身的 KV 只占未来位置 t+1…t+5,<b>当步用完即弃,不进任何缓存</b>——
+          所以 MTP 的持久状态也只有 3 个 128 槽环形缓冲,同样与上下文长度无关;</li>
+        <li><b>纯 SWA 层待遇</b>:compress_ratio=0,θ=10000 无 YaRN;RoPE/逆旋转、分组低秩输出(<code>wo_a</code> 块对角 → <code>wo_b</code>)与主干注意力逐行同构;</li>
+        <li><b>markov_head</b>:embed/head 各 129280×256(rank 256),本质是一张低秩分解的一阶马尔可夫转移表,
+          以<b>加性 logit 偏置</b>注入——机制详解见 §11.5。</li>
       </ul>
+
+      <h3>11.5 markov_head:三个关键点</h3>
+      <p>
+        <b>① 本质是查一张一阶马尔可夫转移表,实现上做了低秩压缩。</b>
+        理想形态是 V×V 的 bigram logit 表 <span class="math">B</span>(<span class="math">B[x,y]</span> =
+        "上一位是 x、下一位是 y 的偏置"),V=129,280 时完整表 ≈ 33 GB;
+        实现压成 rank-256 分解 <span class="math">B = E·Hᵀ</span>(两张 129280×256,bf16 ≈ 132 MB,约 250 倍压缩)。
+        查询时只需:上一位 token id → 取 <code>E[x]</code>(256 维)→ 乘 <code>H</code> → 得到整行 <span class="math">B[x,:]</span>。
+        <b>只查 id、不读隐状态</b>——这正是"一阶"的含义,也是它几乎零成本的原因。
+      </p>
+      <p>
+        <b>② 串行链条:注意力并行算 5 位 logits,先后依赖由头部 5 步循环补上。</b>
+        每一位的最终分布由两路相加得到:
+      </p>
+      <p style="text-align:center" class="math">
+        最终 logits = head(隐状态) + markov_head(上一位 token id)<br>
+        <span style="font-style:normal; font-size:13px; color:var(--text-dim)">↑ 深层上下文理解 &nbsp;&nbsp;&nbsp; ↑ 浅层词序习惯</span>
+      </p>
+      <pre><code><span class="cm"># DSparkBlock.forward_head(mtp.2);logits [B,5,V] 由共享 head 一次算出</span>
+output_ids[:, 0] = input_ids                               <span class="cm"># 首位 = 主干刚采的真实 token</span>
+for i in range(block_size):                                <span class="cm"># 逐位串行 0…4</span>
+    bias, mk_emb = self.markov_head(output_ids[:, i])      <span class="cm"># 拿上一位 id 查转移表</span>
+    logits[:, i].add_(bias)                                <span class="cm"># 偏置加到第 i 位 logits</span>
+    output_ids[:, i+1] = sample(logits[:, i], temperature) <span class="cm"># 采出第 i+1 个草稿,成为下一步的键</span></code></pre>
+      <p>
+        这就是草稿块内可以<b>不用因果掩码</b>的原因:并行归注意力,串行归这个循环。
+        (副产品 <code>mk_emb</code> 逐位攒齐后拼进 <code>confidence_head</code> 输入。)
+      </p>
+      <p>
+        <b>③ 为什么能直接相加:logit 空间相加 = 概率空间相乘。</b>
+        softmax(z+b) ∝ softmax(z) ⊙ eᵇ,即"主干的概率分布 × 马尔可夫先验分布,再归一化"——
+        贝叶斯式的"先验 × 似然 → 后验",也是经典的 <b>Product of Experts</b>:
+        head 提供深层上下文证据,markov_head 提供局部词频证据,两个独立信息源的对数概率本来就该相加。
+        且偏置幅度是<b>端到端训练校准</b>的;再加上它只作用于草稿、主干验证兜底,
+        最坏情况只是接受率下降,不会影响最终输出的正确性。
+      </p>
+      <p class="src">
+        注:checkpoint 配置 block_size=5、target 层 {37, 38, 39}(对应 <code>main_proj</code> 输入 15360 = 3×5120);
+        推理代码 <code>__main__</code> 冒烟示例用的是 block_size=6、target (3,4),仅为演示参数,勿当作模型配置。
+      </p>
     </section>
 
     <section class="card" id="vit">
