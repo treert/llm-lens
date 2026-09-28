@@ -685,7 +685,7 @@
 
       <h3>6.4 视觉塔:独立的 2D RoPE</h3>
       <p>
-        ViT 用二维 RoPE:h、w 两个方向各有一套位置频率(θ=10,000),双向注意力;
+        ViT 用二维 RoPE:head_dim 64 <b>对半分</b>,前 32 维编码 h 方向、后 32 维编码 w 方向(θ=10,000,fp32 计算),双向注意力;
         配对方式是"前后半配对"(chunk 两半)而非语言侧的"相邻两维配对",两套实现各自独立
         (<code>vision.py</code> 的 <code>apply_rotary</code> vs <code>model.py</code> 的 <code>apply_rotary_emb</code>)。
       </p>
@@ -911,14 +911,58 @@ for i in range(block_size):                                <span class="cm"># �
     <section class="card" id="vit">
       <h2><span class="no">12</span>视觉塔(ViT + aligner)</h2>
 
-      <h3>12.1 结构参数</h3>
+      <h3>12.1 数据流总览:像素 → patch → ViT → aligner → 文本流</h3>
+      <div class="arch">
+        <div class="arch-row">
+          <div class="arch-label">图像输入</div>
+          <div class="blk blk-io">RGB 像素,切成 <b>14×14 patch</b>(每 patch 3×14×14 = <b>588</b> 维);单图 token 预算 <code>max_image_tokens=1024</code>(由 image_processor 侧执行,约束的是进入 LLM 的图像 token 数);patch 按行主序(光栅扫描)排成序列</div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="arch-row">
+          <div class="arch-label">Patch 嵌入</div>
+          <div class="blk blk-vit"><b>patch_embed.proj</b>:588 → <b>1024</b>(裸 Linear,带 bias);<b>无</b>绝对位置嵌入——与经典 ViT 的关键差异</div>
+        </div>
+        <div class="arrow-down">↓ ×32 层(pre-norm)</div>
+        <div class="arch-row">
+          <div class="arch-label">ViT Block<br>×32</div>
+          <div class="blk blk-vit">
+            <b>双向注意力</b>(非因果,SDPA 实现,无 CLS token):16 头 × 64 维,Q/K/V/O 投影<b>带 bias</b>;<b>2D RoPE</b>(θ=10000)只作用于 Q/K——head_dim 64 对半分,前 32 维编码 h、后 32 维编码 w;<br>
+            <b>SwiGLU MLP</b>(SiLU 门控):<code>w1</code> [5632,1024](gate/up 融合)→ <code>w2</code> [1024,2816],<b>无 bias</b>;pre-norm,32 层之后还有<b>最终 RMSNorm</b><br>
+            全程 <b>bf16 未量化</b>(RoPE 与 RMSNorm 内部以 fp32 计算)——视觉塔是全模型少数完全没上 FP8/FP4 的部分
+          </div>
+        </div>
+        <div class="arrow-down">↓ N 个 1024 维 patch 特征</div>
+        <div class="arch-row">
+          <div class="arch-label">aligner<br>(3×3 折叠)</div>
+          <div class="blk blk-vit">
+            把特征图 reshape 回 2D 网格,右/下侧<b>补零</b>到 3 的倍数后做<b>非重叠 3×3 分块</b>(<code>F.unfold</code>,kernel=stride=3,非滑动邻域),每块的 9 个 patch 在通道维拼成 <b>9216</b> 维 →
+            <code>aligner.w1</code>(9216→5120,带 bias)→ <b>GELU</b> → <code>aligner.w2</code>(5120→5120,带 bias)<br>
+            效果:token 数 ≈ 减为 1/9,维度对齐语言模型 hidden_size 5120
+          </div>
+        </div>
+        <div class="arrow-down">↓ merge_image_embeddings:覆写图像 span 的 embedding</div>
+        <div class="arch-row">
+          <div class="arch-label">插入文本流</div>
+          <div class="blk blk-dec">
+            [<b>image_start</b>] 图像特征(行间插 [<b>image_newline</b>]) [<b>image_end</b>] —— 三个 5120 维可学习边界嵌入;<br>
+            文本流中图像 span 的占位符是 <code>image_token_id=129264</code>,embed 后被 aligner 输出整段替换;
+            此后图像 token 在 LLM 注意力里就是<b>普通位置</b>(占滑窗、进压缩缓存)
+          </div>
+        </div>
+      </div>
+      <p class="src">
+        记号对应:<code>vision.*</code> 为 ViT(含 patch_embed 与 32 层 Block),<code>aligner.*</code> 为跨模态投影,
+        <code>image_start/end/newline</code> 挂在 embedding 侧。位置信息的处理方式见 12.3。
+      </p>
+
+      <h3>12.2 结构参数</h3>
       <ul>
-        <li><code>vision.*</code>:32 层 ViT(hidden 1024、16 头、patch 14 → <code>patch_embed.proj</code> 1024×588),MLP SwiGLU 融合(w1 [5632,1024]、w2 [1024,2816]),标准 pre-norm,<b>bf16 未量化</b>;注意力是<b>双向</b>的并带 <b>2D RoPE</b>(h/w 两个位置频率);patch_embed 与注意力投影带 bias,MLP 的 w1/w2 <b>无</b> bias;max_image_tokens=1024;</li>
-        <li><code>aligner.w1/w2</code>(9216→5120→5120,带 bias):3×3 邻域(downsample_ratio=3,边缘 pad 补齐)拼 9216 维投到语言模型;中间激活是 <b>GELU</b>;</li>
+        <li><code>vision.*</code>:32 层 ViT(hidden 1024、16 头、patch 14 → <code>patch_embed.proj</code> 1024×588),MLP SwiGLU 融合(SiLU 门控,w1 [5632,1024]、w2 [1024,2816]),RMSNorm pre-norm + 末尾最终 RMSNorm,<b>bf16 未量化</b>(RoPE/norm 内部 fp32);注意力是<b>双向</b>的(SDPA,无 CLS token)并带 <b>2D RoPE</b>;patch_embed 与注意力投影带 bias,MLP 的 w1/w2 <b>无</b> bias;max_image_tokens=1024、min_pixels=295936(544×544);</li>
+        <li><code>aligner.w1/w2</code>(9216→5120→5120,带 bias):<b>非重叠</b> 3×3 分块(downsample_ratio=3,<code>F.unfold</code> kernel=stride=3,右/下侧补零 pad 到 3 的倍数)拼 9216 维投到语言模型;中间激活是 <b>GELU</b>;</li>
         <li><code>image_start/image_end/image_newline</code>:5120 维可学习边界嵌入;image_token_id=129264。</li>
       </ul>
 
-      <h3>12.2 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
+      <h3>12.3 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
       <p>
         这个 ViT <b>没有</b>经典 ViT 的绝对位置嵌入(<code>patch_embed</code> 是裸 Linear,无任何 additive position embedding)。
         位置感经由两个间接渠道形成:
@@ -932,7 +976,7 @@ for i in range(block_size):                                <span class="cm"># �
         进入文本流后,LLM 的 RoPE 按序列位置统一处理——<b>跨 token 的位置关系归 LLM 管,图像内部的 2D 结构归 ViT 管</b>。
       </p>
 
-      <h3>12.3 LLM 侧如何区分图像 token 与文本 token</h3>
+      <h3>12.4 LLM 侧如何区分图像 token 与文本 token</h3>
       <p>
         一切源于 <code>image_processor</code> 准备好的 <code>token_types</code>(文本 = −1,图像 span ≥ 0),
         派生出 <code>image_mask</code>,在三处区别对待:
