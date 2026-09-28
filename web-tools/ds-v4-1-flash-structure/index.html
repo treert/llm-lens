@@ -143,16 +143,17 @@
       <a href="#overview">1 总体架构</a>
       <a href="#params">2 关键参数</a>
       <a href="#ced">3 CED</a>
-      <a href="#attn">4 Latent Attention 与 CSA²</a>
-      <a href="#rope">5 位置编码</a>
-      <a href="#kv">6 KV Cache 显存账</a>
-      <a href="#hc">7 Hyper-Connections</a>
-      <a href="#engram">8 Engram</a>
-      <a href="#moe">9 MoE 与路由</a>
-      <a href="#mtp">10 DSpark MTP</a>
-      <a href="#vit">11 视觉塔</a>
-      <a href="#quant">12 量化与权重命名</a>
-      <a href="#optim">13 优化器与后训练</a>
+      <a href="#attn">4 Latent Attention 与 SWA</a>
+      <a href="#csa2">5 CSA² 跨层复用</a>
+      <a href="#rope">6 位置编码</a>
+      <a href="#kv">7 KV Cache 显存账</a>
+      <a href="#hc">8 Hyper-Connections</a>
+      <a href="#engram">9 Engram</a>
+      <a href="#moe">10 MoE 与路由</a>
+      <a href="#mtp">11 DSpark MTP</a>
+      <a href="#vit">12 视觉塔</a>
+      <a href="#quant">13 量化与权重命名</a>
+      <a href="#optim">14 优化器与后训练</a>
     </nav>
 
     <section class="card" id="overview">
@@ -474,12 +475,12 @@
         <li><b>Prefill</b>:主体计算 ≈ 20/40 = 一半,官方口径每 token 激活 8B 参数;</li>
         <li><b>Decode</b>:新 token 仍要过 Encoder 产 KV 增量、再过 20 层 Decoder,即完整 40 层(16B/token),<b>CED 不减半 Decode</b>;</li>
         <li>上下文 4K → 1M(256 倍),单 token Decode FLOPs 只增约 25%(解码计算不再随上下文线性增长;端到端延迟还受 KV 读取、通信、调度影响)。</li>
-        <li><b>SWA Bounded Replay 的另一半用途</b>:decoder 各层的 SWA KV 只能由本层隐状态现算,但窗口只有 128 槽、大小与上下文无关——于是会话挂起/迁移/换 checkpoint 时,SWA KV 直接丢弃<b>不持久化</b>;恢复时只需把最近 128 个 token 重新过一遍 Decoder(replay),40 层滑窗缓存即重建完毕。因此它不占随长度增长的持久化存储(持久化 KV 由此降到上一代 ≈ 1/8)。背后的判据:<b>能不能便宜地重算,决定了要不要存</b>——SWA 能(128 token 重放即可),global KV 不能(重算要把全部历史重跑一遍 Encoder),所以后者才需要 FP4 + 跨层共享这些极限压缩手段。</li>
+        <li><b>SWA Bounded Replay 的另一半用途</b>:decoder 各层的 SWA KV 只能由本层隐状态现算,但窗口只有 128 槽、大小与上下文无关——于是会话挂起/迁移/换 checkpoint 时,SWA KV 直接丢弃<b>不持久化</b>;恢复时只需把最近 128 个 token 重新过一遍(replay),40 层滑窗缓存即重建完毕(代码级过程见 §4.4)。因此它不占随长度增长的持久化存储(持久化 KV 由此降到上一代 ≈ 1/8)。背后的判据:<b>能不能便宜地重算,决定了要不要存</b>——SWA 能(128 token 重放即可),global KV 不能(重算要把全部历史重跑一遍 Encoder),所以后者才需要 FP4 + 跨层共享这些极限压缩手段。</li>
       </ul>
     </section>
 
     <section class="card" id="attn">
-      <h2><span class="no">4</span>Latent Attention 与 CSA²</h2>
+      <h2><span class="no">4</span>Latent Attention 与 SWA 分支</h2>
 
       <h3>4.1 核心认知:SWA × CSA²,一次注意力 = 两路 KV 拼接</h3>
       <p>
@@ -492,7 +493,7 @@
         <tr><td>覆盖范围</td><td>最近 <b>128</b> 个 token</td><td>全部历史中检索出的 <b>Top-512</b> 个压缩位置</td></tr>
         <tr><td>KV 来源</td><td><b>本层现算</b>:<code>wkv</code>(5120→512),40 层各自独立权重、独立缓存</td><td>仅组首 Full 层(<b>L2/L8/L14/L20</b>)的 compressor 产出,组内其余层纯读缓存</td></tr>
         <tr><td>精度</td><td>FP8</td><td>FP4(main KV 288 B/条 + index K 68 B/条)</td></tr>
-        <tr><td>缓存形态</td><td>每层 128 槽环形缓冲(40 层 ≈ 2.6 MB/序列,<b>与上下文长度无关</b>;挂起时丢弃,恢复时 replay 最近 128 token 重建)</td><td>随长度增长的全局缓存(合计 <b>890 B/token</b>,推导见 §6)</td></tr>
+        <tr><td>缓存形态</td><td>每层 128 槽环形缓冲(40 层 ≈ 2.6 MB/序列,<b>与上下文长度无关</b>;挂起时丢弃,恢复时 replay 最近 128 token 重建)</td><td>随长度增长的全局缓存(合计 <b>890 B/token</b>,推导见 §7)</td></tr>
         <tr><td>L0/L1/MTP</td><td>有(是唯一分支,故称"纯 SWA 层")</td><td>无(compress_ratio=0,整支跳过)</td></tr>
       </table>
       <p>
@@ -535,7 +536,65 @@
         <li>RoPE 每层只有一组频率:compress_ratio=0 的层(L0/L1/MTP)禁用 YaRN、用基础 rope_theta=10000;compress_ratio&gt;0 的层(L2–L39)<b>整层</b>(Q、SWA 滑窗 KV、压缩 KV 共用)用 compress_rope_theta=160000 + YaRN——名字里的 "compress" 有误导性,压缩 KV 的"位置间隔更大"是靠<b>旋转位置取组首 token</b>(第 j 组取位置 j×m)体现的,不是单独的 theta。</li>
       </ul>
 
-      <h3>4.3 CSA²:压缩检索分支的跨层复用(Full / Reindex / Reuse)</h3>
+      <h3>4.3 SWA × 全局分支:两套独立的投影矩阵</h3>
+      <p>
+        SWA 与全局(压缩检索)分支共用 Q 打分与同一个 softmax,但 <b>KV 的投影矩阵完全独立、互不共享</b>——
+        同一份隐状态 h,经两套不同的权重产生两种视角的 512 维 latent:
+      </p>
+      <table>
+        <tr><th></th><th>SWA KV(每层私有)</th><th>全局压缩 KV(组内共享)</th></tr>
+        <tr><td>投影权重</td><td><code>attn.wkv</code>(5120→512)+ <code>kv_norm</code></td><td><code>attn.compressor.wkv</code> + <code>wgate</code>(仅 m&gt;1)+ <code>compressor.norm</code></td></tr>
+        <tr><td>持有层</td><td><b>全部 43 层</b>(40 主干 + 3 MTP),逐层独立、互不相同</td><td><b>仅 4 个源层</b> L2/L8/L14/L20;Reuse / Reindex 层<b>连权重都没有</b></td></tr>
+        <tr><td>权重精度</td><td>FP8 块量化(32×32)</td><td>bf16(<code>wgate</code> 为 fp32)</td></tr>
+        <tr><td>写入粒度</td><td>每个 token 一条,逐层各写各的</td><td>m=2:2 个 token 经学习到的 softmax 门控池化成 1 条;m=1:退化为纯投影(无 <code>wgate</code>)</td></tr>
+        <tr><td>缓存精度</td><td>FP8(对 post-RoPE 整向量量化)</td><td>FP4 E2M1(MXFP4)</td></tr>
+      </table>
+      <p>
+        因此"<b>只有 L2/L8/L14/L20 计算并缓存 KV</b>"这个说法只对全局分支成立;SWA 分支每层都在产、都在缓存。
+        两路缓存在<b>结构上互不读取</b>(对方的 cache 不在自己的数据通路上:<code>wkv</code> 与
+        <code>compressor.wkv</code> 都只是对 h 的纯投影),但在<b>数值上互相渗透</b>:h 由前序各层堆出,
+        而每层的注意力输出都融合了两路检索结果——深层的 SWA 条目里早已蒸馏了全局信息,反之亦然。
+        这个"结构分离、数值交融"的格局,正是下面 replay 敢做近似的前提。
+      </p>
+
+      <h3>4.4 SWA 的构建与 Bounded Replay(代码级)</h3>
+      <p>构建发生在每层的 <code>Attention._window_kv</code>,四步:</p>
+      <ol>
+        <li><b>投影</b>:<code>kv_norm(wkv(x))</code> 得 512 维 latent,RoPE 只旋末 64 维;</li>
+        <li><b>量化</b>:对 post-RoPE <b>整向量</b>做 FP8 量化(RoPE 尾维在内);</li>
+        <li><b>写入环形缓冲</b> <code>window_kv_cache</code>[batch, 128, 512](<code>persistent=False</code>,<b>不进 checkpoint</b>):
+          prefill 时序列 ≤128 则整段写入;更长则只取 <code>kv[:, -128:]</code>,按 <code>seqlen % 128</code> 旋转对齐填入;
+          decode 时按 <code>start_pos % 128</code> 覆盖单个槽位;</li>
+        <li><b>可见性</b>:<code>get_window_topk_idxs</code> 给每个 query 发其因果窗口内的槽位列表,
+          窗口未满的位置标 <code>-1</code> 屏蔽(prefill 第 k 个 query 只见 k 条;decode 见整个环)。</li>
+      </ol>
+      <p>
+        <b>Replay(挂起恢复时的重建)</b>:推理代码里<b>没有</b>独立的 replay / restore 函数——重建就是
+        "把最近 ≤128 个 token 当作一个新 chunk、以 <code>start_pos=0</code> 重跑一遍 prefill 分支",
+        这也是数据结构上唯一可能的重建路径(环形缓冲物理上只有 128 槽)。过程要点:
+      </p>
+      <ul>
+        <li>replay 的 128 个位置<b>输出全部丢弃</b>,唯一目的是把 40 层环形缓冲重新填满;</li>
+        <li>注意力照常两路:SWA 分支处于<b>预热期</b>(第 k 个 token 只见 k 条,其余 -1 屏蔽),
+          而<b>全局分支读的是持久化的精确压缩 KV</b>——长程信息被锚定,受污染的只有局部纹理;</li>
+        <li>污染随窗口滑动<b>自愈</b>:恢复 decode 后,最老(污染最重)的条目最先被顶出——
+          <b>污染程度与剩余寿命精确反相关</b>,128 步内全部换血;</li>
+        <li>代价:128 token × 40 层 ≈ 一次 mini-prefill;恢复会话只需携带 <b>128 个 token id</b>,
+          不用迁移 2.6 MB 的 SWA 缓存。</li>
+      </ul>
+      <div class="callout warn">
+        <b>推演(非官方口径)</b>:若要求逐值<b>精确</b>重建,第 l 层的 KV 条目依赖 128 + 127·l 个 token
+        (每层滑窗把感受野向前扩 127;Engram 的 4-gram 哈希再多要 ≤3 个 token id),顶层 L39 需要 ≈ 5081 个。
+        官方的 128 token 方案因而是<b>近似重建</b>:接受深层窗口内老条目的暂态偏差,换取恢复成本趋近于零。
+        支撑这个近似的安全网有三:全局分支持久化且精确(长程锚定)、两路在最近 128 token 上的重叠冗余
+        (交接带设计)、以及"污染最重的条目死得最快"的 FIFO 自愈。
+      </div>
+    </section>
+
+    <section class="card" id="csa2">
+      <h2><span class="no">5</span>CSA²:压缩检索与跨层复用</h2>
+
+      <h3>5.1 三种静态模式:Full / Reindex / Reuse</h3>
       <p>
         每个注意力层仍然计算自己的 Main Query 和 SWA(128)KV,但全局稀疏注意力所用的
         <b>main KV、indexer K、Top-K 索引</b>可以跨层共享。三种静态模式逐层指定:
@@ -553,7 +612,7 @@
         压缩阶段的绝对位置编码,indexer K 直接从 main KV 投影,并把 KV 共享与 Top-K 复用解耦。
       </p>
 
-      <h3>4.4 分层稀疏索引(Hierarchical Sparse Indexer)</h3>
+      <h3>5.2 分层稀疏索引(Hierarchical Sparse Indexer)</h3>
       <p>
         indexer(32 头 × 128 维:<code>indexer.wq_b</code> 1280→4096、<code>wk</code> 512→128、<code>k_norm</code>、<code>weights_proj</code> 5120→32)
         若每次扫全部百万 token 自身也会成为瓶颈。因此 Decoder 的第一个 Full 层(L20)扫描全部可见位置时,
@@ -564,7 +623,7 @@
         防止它因位置不满而被老的满块挤出候选池。
       </p>
 
-      <h3>4.5 FP4 Main KV Cache 与 compressor</h3>
+      <h3>5.3 FP4 Main KV Cache 与 compressor</h3>
       <ul>
         <li>main KV / 压缩 latent:<b>FP4 E2M1</b>,每 16 通道一个 E4M3 scale(MXFP4),无第二级全局 scale,在 RoPE 之后量化;</li>
         <li>indexer K:FP4 E2M1,每 32 通道一个 E8M0 scale(纯 2 的幂,只用于 Top-K 排序);</li>
@@ -578,12 +637,13 @@
         compressor 输出的是<b>未加 RoPE</b> 的 latent:indexer 先拿它投影出 index K 写入缓存,然后才对 latent 施加 RoPE、
         量化 FP4 写入 main KV 缓存——同一份存储先读后写,两种用途各取所需形态。
       </p>
+
     </section>
 
     <section class="card" id="rope">
-      <h2><span class="no">5</span>位置编码:部分维 RoPE + 分频段 YaRN</h2>
+      <h2><span class="no">6</span>位置编码:部分维 RoPE + 分频段 YaRN</h2>
 
-      <h3>5.1 施加范围:512 维里只有末 64 维旋转</h3>
+      <h3>6.1 施加范围:512 维里只有末 64 维旋转</h3>
       <ul>
         <li>head_dim 512 = <b>448 维 NoPE + 64 维 RoPE</b>(<code>qk_rope_head_dim</code>):Q(64 头)与共享 KV latent 都只旋转末 64 维,前 448 维是纯内容维——位置信号与内容信号在通道上分离;</li>
         <li>旋转方式:相邻两维配成复数,乘位置相位 e<sup>i·p·θᵢ</sup>,共 32 个频率 θ<sub>i</sub> = base<sup>−2i/64</sup>;</li>
@@ -591,7 +651,7 @@
         <li>输出端有<b>逆旋转</b>:V(= KV latent 本身)带着 RoPE 相位,加权求和后对输出尾 64 维乘共轭相位还原——残差流中的表示因此不含位置相位,缓存也能保持统一的旋转形态(<code>apply_rotary_emb(o, freqs, inverse=True)</code>)。</li>
       </ul>
 
-      <h3>5.2 频率配置:每层一组,共两档</h3>
+      <h3>6.2 频率配置:每层一组,共两档</h3>
       <table>
         <tr><th>层</th><th>base θ</th><th>YaRN</th><th>理由</th></tr>
         <tr><td>L0 / L1 / MTP(compress_ratio=0)</td><td>10,000</td><td>禁用</td><td>只看 128 滑窗,没有长程外推需求</td></tr>
@@ -603,7 +663,7 @@
         它实际是"所有带压缩分支的层的 θ"。
       </p>
 
-      <h3>5.3 YaRN:按频段分别插值(65,536 → 1,048,576)</h3>
+      <h3>6.3 YaRN:按频段分别插值(65,536 → 1,048,576)</h3>
       <p>对 32 个频率按"该维在训练长度 65,536 内转几圈"分三段(<code>precompute_freqs_cis</code> 的 <code>original_seq_len &gt; 0</code> 分支):</p>
       <table>
         <tr><th>频段</th><th>判据(训练长度内圈数)</th><th>处理</th></tr>
@@ -616,7 +676,7 @@
         温度补偿可能已在训练中吸收。
       </p>
 
-      <h3>5.4 视觉塔:独立的 2D RoPE</h3>
+      <h3>6.4 视觉塔:独立的 2D RoPE</h3>
       <p>
         ViT 用二维 RoPE:h、w 两个方向各有一套位置频率(θ=10,000),双向注意力;
         配对方式是"前后半配对"(chunk 两半)而非语言侧的"相邻两维配对",两套实现各自独立
@@ -625,7 +685,7 @@
     </section>
 
     <section class="card" id="kv">
-      <h2><span class="no">6</span>KV Cache 显存账:890 B/token 的推导</h2>
+      <h2><span class="no">7</span>KV Cache 显存账:890 B/token 的推导</h2>
       <table>
         <tr><th>项</th><th>通道</th><th>数值格式</th><th>缩放</th><th>字节/条目</th></tr>
         <tr><td>main KV / 压缩 latent</td><td>512</td><td>FP4 E2M1(0.5 B/通道)</td><td>每 16 通道 1 个 E4M3 scale → 32 B</td><td><b>288</b></td></tr>
@@ -646,7 +706,7 @@
     </section>
 
     <section class="card" id="hc">
-      <h2><span class="no">7</span>Hyper-Connections(Single-Pass mHC)</h2>
+      <h2><span class="no">8</span>Hyper-Connections(Single-Pass mHC)</h2>
       <p>
         残差流不是单向量,而是 <b>hc_mult=4 份并行副本</b>(<code>layers.N.hc_{attn,ffn}_{fn,base,scale}</code>,fp32):
       </p>
@@ -660,7 +720,7 @@
     </section>
 
     <section class="card" id="engram">
-      <h2><span class="no">8</span>Engram:参数化 n-gram 记忆</h2>
+      <h2><span class="no">9</span>Engram:参数化 n-gram 记忆</h2>
       <p>
         对固定短语、实体名、代码模式等高度重复的局部知识,不必让 Transformer 每次用多层
         attention + MoE 重新推导——直接拿最近几个 token 去巨型可训练 embedding 表里查。
@@ -677,7 +737,7 @@
         不读隐状态)、计算量恒定(24 次 lookup + 一次投影,不随上下文增长)、写入是纯加法
        (<code>h += gate × value</code>)。上下文感知只剩 gate 一个标量;图像 token 处 gate=0 直接跳过。
       </div>
-      <h3>7.1 计算流程(五步)</h3>
+      <h3>9.1 计算流程(五步)</h3>
       <ol>
         <li><b>Tokenizer 压缩</b>:原始 token id 经规范化管道映射为压缩 id(只用于构造查询键,不改模型 tokenizer);管道为 NFKC → NFD → 去口音 → 小写 → 空白合并(含"单空格 token"哨兵保护),129,280 个 token 收敛出 <b>99,092</b> 个唯一 key(config 的 <code>engram_compressed_vocab_size</code>,哈希乘子由它导出,不匹配会静默重哈希整张表);</li>
         <li><b>后缀 n-gram</b>:当前位置取最近 token 构造 2/3/4-gram(不含未来 token,保持因果;n-gram 不跨越图像 span——遇到 dead token 即截断填 pad);</li>
@@ -685,7 +745,7 @@
         <li><b>投影 + 上下文门控</b>:<code>engram.wkv</code>(6144→25600)投出 4 份 HC 副本各自的 key + 1 份共享 value;门控 = sigmoid(signed_sqrt(归一化点积))——n-gram 提供候选记忆,当前隐状态决定写不写;</li>
         <li><b>门控写入残差流</b>(V4.1 删除了原论文门控后的短因果卷积);图像 token 不参与(engram_mask 关门)。</li>
       </ol>
-      <h3>7.2 本模型配置</h3>
+      <h3>9.2 本模型配置</h3>
       <table>
         <tr><th>项</th><th>值</th></tr>
         <tr><td>位置 / 数量</td><td>第 1、14 层各一个(零起始编号)</td></tr>
@@ -701,7 +761,7 @@
     </section>
 
     <section class="card" id="moe">
-      <h2><span class="no">9</span>MoE 与路由</h2>
+      <h2><span class="no">10</span>MoE 与路由</h2>
       <ul>
         <li>每层 <code>ffn.gate.weight</code>(384×5120)+ <code>gate.bias</code> + <code>gate.bias_vl</code>(fp32,noaux_tc 校正;图像 span 内 token 用 bias_vl);</li>
         <li>打分函数 <span class="math">√softplus(x/τ)</span>(sqrtsoftplus,τ=<code>gate_temp</code>=1);bias 只参与选专家、不进权重;权重 = 原始分数归一化 × 1.5(routed_scaling_factor);</li>
@@ -712,7 +772,7 @@
     </section>
 
     <section class="card" id="mtp">
-      <h2><span class="no">10</span>DSpark MTP(推测解码草稿)</h2>
+      <h2><span class="no">11</span>DSpark MTP(推测解码草稿)</h2>
       <ul>
         <li><code>num_nextn_predict_layers=3</code>,前缀 <code>mtp.0/1/2</code>(layer_id 40/41/42),每层是完整 Block(注意力 + MoE),embed/head 与主干共享;</li>
         <li><code>mtp.0.main_proj</code>(15360→5120)+ <code>main_norm</code>:把 target 层(37/38/39)的<b>注意力输入</b>(非输出)拼接投影成草稿流输入;实际取的是各 target 层<b>块入口处的残差流对 4 份 HC 副本求 mean</b>(<code>main_hiddens.append(h.mean(dim=2))</code>,在块执行前收集);</li>
@@ -722,16 +782,16 @@
     </section>
 
     <section class="card" id="vit">
-      <h2><span class="no">11</span>视觉塔(ViT + aligner)</h2>
+      <h2><span class="no">12</span>视觉塔(ViT + aligner)</h2>
 
-      <h3>11.1 结构参数</h3>
+      <h3>12.1 结构参数</h3>
       <ul>
         <li><code>vision.*</code>:32 层 ViT(hidden 1024、16 头、patch 14 → <code>patch_embed.proj</code> 1024×588),MLP SwiGLU 融合(w1 [5632,1024]、w2 [1024,2816]),标准 pre-norm,<b>bf16 未量化</b>;注意力是<b>双向</b>的并带 <b>2D RoPE</b>(h/w 两个位置频率);patch_embed 与注意力投影带 bias,MLP 的 w1/w2 <b>无</b> bias;max_image_tokens=1024;</li>
         <li><code>aligner.w1/w2</code>(9216→5120→5120,带 bias):3×3 邻域(downsample_ratio=3,边缘 pad 补齐)拼 9216 维投到语言模型;中间激活是 <b>GELU</b>;</li>
         <li><code>image_start/image_end/image_newline</code>:5120 维可学习边界嵌入;image_token_id=129264。</li>
       </ul>
 
-      <h3>11.2 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
+      <h3>12.2 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
       <p>
         这个 ViT <b>没有</b>经典 ViT 的绝对位置嵌入(<code>patch_embed</code> 是裸 Linear,无任何 additive position embedding)。
         位置感经由两个间接渠道形成:
@@ -745,7 +805,7 @@
         进入文本流后,LLM 的 RoPE 按序列位置统一处理——<b>跨 token 的位置关系归 LLM 管,图像内部的 2D 结构归 ViT 管</b>。
       </p>
 
-      <h3>11.3 LLM 侧如何区分图像 token 与文本 token</h3>
+      <h3>12.3 LLM 侧如何区分图像 token 与文本 token</h3>
       <p>
         一切源于 <code>image_processor</code> 准备好的 <code>token_types</code>(文本 = −1,图像 span ≥ 0),
         派生出 <code>image_mask</code>,在三处区别对待:
@@ -763,7 +823,7 @@
     </section>
 
     <section class="card" id="quant">
-      <h2><span class="no">12</span>量化格式与权重命名</h2>
+      <h2><span class="no">13</span>量化格式与权重命名</h2>
       <table>
         <tr><th>类别</th><th>格式</th><th>覆盖权重</th></tr>
         <tr><td>直接可读(BF16/F32)</td><td>未量化</td><td><code>embed/head</code>、全部 RMSNorm 增益、路由器、HC、attn_sink、compressor/indexer(个别 FP8)、视觉塔</td></tr>
@@ -777,7 +837,7 @@
     </section>
 
     <section class="card" id="optim">
-      <h2><span class="no">13</span>优化器与后训练(官方)</h2>
+      <h2><span class="no">14</span>优化器与后训练(官方)</h2>
       <table>
         <tr><th>参数类型</th><th>优化器</th><th>理由</th></tr>
         <tr><td>RMSNorm 及非矩阵参数</td><td>AdamW(wd=0.1)</td><td>常规</td></tr>
