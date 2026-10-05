@@ -482,7 +482,7 @@
         <li><b>Prefill</b>:主体计算 ≈ 20/40 = 一半,官方口径每 token 激活 8B 参数;</li>
         <li><b>Decode</b>:新 token 仍要过 Encoder 产 KV 增量、再过 20 层 Decoder,即完整 40 层(16B/token),<b>CED 不减半 Decode</b>;</li>
         <li>上下文 4K → 1M(256 倍),单 token Decode FLOPs 只增约 25%(解码计算不再随上下文线性增长;端到端延迟还受 KV 读取、通信、调度影响)。</li>
-        <li><b>SWA Bounded Replay 的另一半用途</b>:decoder 各层的 SWA KV 只能由本层隐状态现算,但窗口只有 128 槽、大小与上下文无关——于是会话挂起/迁移/换 checkpoint 时,SWA KV 直接丢弃<b>不持久化</b>;恢复时只需把最近 128 个 token 重新过一遍(replay),40 层滑窗缓存即重建完毕(代码级过程见 §4.4)。因此它不占随长度增长的持久化存储(持久化 KV 由此降到上一代 ≈ 1/8)。背后的判据:<b>能不能便宜地重算,决定了要不要存</b>——SWA 能(128 token 重放即可),global KV 不能(重算要把全部历史重跑一遍 Encoder),所以后者才需要 FP4 + 跨层共享这些极限压缩手段。</li>
+        <li><b>SWA Bounded Replay 的另一半用途</b>:decoder 各层的 SWA KV 只能由本层隐状态现算,但窗口只有 128 槽、大小与上下文无关——于是会话挂起/迁移/换 checkpoint 时,SWA KV 直接丢弃<b>不持久化</b>;恢复时只需把最近 128 个 token 重新过一遍(replay),40 层滑窗缓存即重建完毕(过程与近似性见 §4.4)。因此它不占随长度增长的持久化存储(持久化 KV 由此降到上一代 ≈ 1/8)。背后的判据:<b>能不能便宜地重算,决定了要不要存</b>——SWA 能(128 token 重放即可),global KV 不能(重算要把全部历史重跑一遍 Encoder),所以后者才需要 FP4 + 跨层共享这些极限压缩手段。</li>
       </ul>
     </section>
 
@@ -564,7 +564,7 @@
         这个"结构分离、数值交融"的格局,正是下面 replay 敢做近似的前提。
       </p>
 
-      <h3>4.4 SWA 的构建与 Bounded Replay(代码级)</h3>
+      <h3>4.4 SWA 的构建(代码级)与 Bounded Replay(部署级)</h3>
       <p>构建发生在每层的 <code>Attention._window_kv</code>,四步:</p>
       <ol>
         <li><b>投影</b>:<code>kv_norm(wkv(x))</code> 得 512 维 latent,RoPE 只旋末 64 维;</li>
@@ -573,12 +573,15 @@
           prefill 时序列 ≤128 则整段写入;更长则只取 <code>kv[:, -128:]</code>,按 <code>seqlen % 128</code> 旋转对齐填入;
           decode 时按 <code>start_pos % 128</code> 覆盖单个槽位;</li>
         <li><b>可见性</b>:<code>get_window_topk_idxs</code> 给每个 query 发其因果窗口内的槽位列表,
-          窗口未满的位置标 <code>-1</code> 屏蔽(prefill 第 k 个 query 只见 k 条;decode 见整个环)。</li>
+          窗口未满的位置标 <code>-1</code> 屏蔽(prefill 第 k 个 query 只见 k 条;稳态 decode 见整个环,环未填满时旧槽同样标 -1)。</li>
       </ol>
       <p>
-        <b>Replay(挂起恢复时的重建)</b>:推理代码里<b>没有</b>独立的 replay / restore 函数——重建就是
-        "把最近 ≤128 个 token 当作一个新 chunk、以 <code>start_pos=0</code> 重跑一遍 prefill 分支",
-        这也是数据结构上唯一可能的重建路径(环形缓冲物理上只有 128 槽)。过程要点:
+        <b>Replay(挂起恢复时的重建)</b>:这是<b>部署层</b>的过程——发布的 minimal inference 里<b>没有</b>
+        replay / restore 函数,只有"多 token 的 chunk 从 <code>start_pos=0</code> 进、单 token 覆盖环槽"两条路径;
+        真正的重建由 serving 层完成,官方技术报告给出的机制是:
+        <b>以缓存命中位置 s 为起点、用真实绝对位置重放最近 <code>n_win</code>(=128)个 token,
+        截断规则为位置 i 的 query 只看 <code>[max(s, i−W+1), i]</code>;重放段只重算 SWA KV,
+        全局压缩 KV 直接复用缓存、既不重算也不覆写</b>(位置基准一旦被重置,持久化的全局缓存与 RoPE 相位就对不上了)。过程要点:
       </p>
       <ul>
         <li>replay 的 128 个位置<b>输出全部丢弃</b>,唯一目的是把 40 层环形缓冲重新填满;</li>
@@ -590,9 +593,14 @@
           不用迁移 2.6 MB 的 SWA 缓存。</li>
       </ul>
       <div class="callout warn">
-        <b>推演(非官方口径)</b>:若要求逐值<b>精确</b>重建,第 l 层的 KV 条目依赖 128 + 127·l 个 token
-        (每层滑窗把感受野向前扩 127;Engram 的 4-gram 哈希再多要 ≤3 个 token id),顶层 L39 需要 ≈ 5081 个。
-        官方的 128 token 方案因而是<b>近似重建</b>:接受深层窗口内老条目的暂态偏差,换取恢复成本趋近于零。
+        <b>为什么一个窗口就够:官方明确这是近似,并且给了两档口径。</b>
+        精确重建的代价,官方口径是重放 <code>L×n_win</code> = 40×128 = <b>5120</b> 个 token
+        (decoder 侧为 <code>L/2×n_win</code>);按感受野精算更紧一点:第 l 层的 KV 条目依赖 128 + 127·l 个 token
+        (每层滑窗把感受野向前扩 127;Engram 的 4-gram 哈希再多要 ≤3 个 token id),顶层 L39 ≈ <b>5081</b>——
+        与官方口径同量级,两者互相印证。<b>官方选择只重放一个窗口(128),并明确承认这是近似重建</b>
+        (原文 "approximately reconstructs"、"accepting approximate states"、"not mathematically equivalent"),
+        依据是先验观察"<b>SWA 的实际有效感受野远小于理论值 <code>n_win × L/2</code></b>";
+        为兜底,<b>后训练阶段会模拟同样的 replay 做 train-aware 适配</b>,让模型适应这种非严格一致的状态。
         支撑这个近似的安全网有三:全局分支持久化且精确(长程锚定)、两路在最近 128 token 上的重叠冗余
         (交接带设计)、以及"污染最重的条目死得最快"的 FIFO 自愈。
       </div>
