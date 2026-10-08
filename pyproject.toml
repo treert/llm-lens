@@ -3,6 +3,14 @@
 #   pip install -e .
 # 卸载(只卸 llm-lens 本身,依赖不动;残留的 *.egg-info/ 可手动删):
 #   pip uninstall llm-lens
+# 查看当前生效的是哪个目录(同一个 Python 环境里同名发行只能装一份,
+# 若 clone 了多份各执行过 pip install -e .,则后装的覆盖先装的,只有最后一个生效):
+#   pip show llm-lens
+#       # 看 "Editable project location" 字段
+#   pip list -e
+#       # 只列出可编辑安装的包(含普通包时不显示),额外带 "Editable project location" 列
+#   python -c "import llm_lens; print(llm_lens.__file__)"
+#       # 最可靠:打印实际被导入的模块路径,以真实 import 结果为准
 
 [build-system]
 requires = ["setuptools>=68"]
