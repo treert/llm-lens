@@ -1,6 +1,8 @@
 # 打包声明 + 依赖列表
 # 安装(依赖 + llm_lens 本地包,可编辑模式,改代码立即生效):
 #   pip install -e .
+# 卸载(只卸 llm-lens 本身,依赖不动;残留的 *.egg-info/ 可手动删):
+#   pip uninstall llm-lens
 
 [build-system]
 requires = ["setuptools>=68"]
