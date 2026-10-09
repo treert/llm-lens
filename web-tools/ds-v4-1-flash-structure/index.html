@@ -960,17 +960,46 @@ for i in range(block_size):                                <span class="cm"># �
       </div>
       <p class="src">
         记号对应:<code>vision.*</code> 为 ViT(含 patch_embed 与 32 层 Block),<code>aligner.*</code> 为跨模态投影,
-        <code>image_start/end/newline</code> 挂在 embedding 侧。位置信息的处理方式见 12.3。
+        <code>image_start/end/newline</code> 挂在 embedding 侧。位置信息的处理方式见 12.4。
       </p>
 
-      <h3>12.2 结构参数</h3>
+      <h3>12.2 图片尺寸规划:token 预算、分辨率上限与超限处理</h3>
+      <p>
+        约束对象要分清:<code>vision_max_n_token=1024</code> 限制的是<b>经 aligner 3×3 折叠后进入 LLM 的 token 数</b>,
+        不是 ViT 侧的 patch 数。一格 LLM token 对应 <b>42×42 像素</b>(patch 14 × downsample_ratio 3),
+        即 <code>n_llm_h × n_llm_w = ceil(H/42) × ceil(W/42)</code>,预算口径(含换行与边界):
+      </p>
+      <p style="text-align:center" class="math">
+        num_image_tokens = n_llm_h × (n_llm_w + 1) + 2 ≤ 1024
+      </p>
+      <p>
+        式中 <code>+1</code> 是<b>每行末尾各一个 <code>image_newline</code></code>(逐行插入,行数越多开销越大),<code>+2</code> 是
+        <code>image_start/end</code>。所以即使折叠后只有 1×1 格,序列也是
+        <code>[start][IMAGE][newline][end]</code> 共 4 个 token,而不是"1 + 前后 2 个"。
+      </p>
+      <p>
+        由此推出分辨率上限:<b>方图最多 31×31 格 ≈ 1302×1302(约 170 万像素)</b>——远比"1024 个 patch → 448×448"的直觉大。
+        <code>vision_max_wh_ratio=null</code>,不限制宽高比;极端长宽比有解析兜底(塌缩成单行/单列网格)。
+      </p>
+      <table>
+        <tr><th>情形</th><th>处理(image_processor.py)</th></tr>
+        <tr><td>尺寸在预算内</td><td>仅向上取整到 14 的倍数,原样进 ViT</td></tr>
+        <tr><td><b>超过 1024 token 预算</b></td><td><code>solve_resize_ratio</code> 解析求出<b>保持宽高比</b>、恰好塞进预算的最大像素尺寸(向下取整到 14 的倍数),再 <code>ImageOps.pad</code> 等比缩 + 灰边(127)letterbox——<b>整幅缩小,不裁剪、不切 tile</b>,一次编码</td></tr>
+        <tr><td>小于 <code>vision_min_pixels=295936</code>(544×544)</td><td>等比<b>放大</b>到下限,保证 ViT 有足够 patch 数。例:40×40 的图按 √(295936/1600) ≈ 13.6 倍放大到 544×544(取整 546×546),ViT 网格 39×39、LLM 网格 13×13,编码后是 <b>184 个 token</b> 而非 1 个</td></tr>
+      </table>
+      <div class="callout warn">
+        这套方案<b>没有</b> Qwen2-VL / InternVL 式的"大图切多块分别编码"机制:单图固定 ≤1024 token,
+        换来图像对上下文的开销有硬上界;代价是细节密集的超大图(文档扫描、高清截图、大表格)会因整体缩小而损失分辨率。
+      </div>
+
+      <h3>12.3 结构参数</h3>
       <ul>
         <li><code>vision.*</code>:32 层 ViT(hidden 1024、16 头、patch 14 → <code>patch_embed.proj</code> 1024×588),MLP SwiGLU 融合(SiLU 门控,w1 [5632,1024]、w2 [1024,2816]),RMSNorm pre-norm + 末尾最终 RMSNorm,<b>bf16 未量化</b>(RoPE/norm 内部 fp32);注意力是<b>双向</b>的(SDPA,无 CLS token)并带 <b>2D RoPE</b>;patch_embed 与注意力投影带 bias,MLP 的 w1/w2 <b>无</b> bias;max_image_tokens=1024、min_pixels=295936(544×544);</li>
         <li><code>aligner.w1/w2</code>(9216→5120→5120,带 bias):<b>非重叠</b> 3×3 分块(downsample_ratio=3,<code>F.unfold</code> kernel=stride=3,右/下侧补零 pad 到 3 的倍数)拼 9216 维投到语言模型;中间激活是 <b>GELU</b>;</li>
         <li><code>image_start/image_end/image_newline</code>:5120 维可学习边界嵌入;image_token_id=129264。</li>
       </ul>
 
-      <h3>12.3 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
+      <h3>12.4 位置信息如何进入:不是"融进 token",而是"藏在特征里"</h3>
       <p>
         这个 ViT <b>没有</b>经典 ViT 的绝对位置嵌入(<code>patch_embed</code> 是裸 Linear,无任何 additive position embedding)。
         位置感经由两个间接渠道形成:
@@ -984,7 +1013,7 @@ for i in range(block_size):                                <span class="cm"># �
         进入文本流后,LLM 的 RoPE 按序列位置统一处理——<b>跨 token 的位置关系归 LLM 管,图像内部的 2D 结构归 ViT 管</b>。
       </p>
 
-      <h3>12.4 LLM 侧如何区分图像 token 与文本 token</h3>
+      <h3>12.5 LLM 侧如何区分图像 token 与文本 token</h3>
       <p>
         一切源于 <code>image_processor</code> 准备好的 <code>token_types</code>(文本 = −1,图像 span ≥ 0),
         派生出 <code>image_mask</code>,在三处区别对待:
