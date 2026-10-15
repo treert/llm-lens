@@ -25,6 +25,7 @@
 | `analyze_norm_distribution.py` | 增益向量的**单层分布形状**与数值分辨率:δ = g/median(|g|)−1 逐层 IQR 标准化后的主体偏度/峰度、超 kσ 尾部占比 vs 高斯理论 (检验"高斯主体 + 稀疏尖峰")、单层唯一值与众数占比、主体宽度相当于几个 bf16 步,输出 `norm_distribution.json` + 六联图 |
 | `analyze_residual_equalization.py` | 入口增益的「均衡器」机制检验(只用权重代理量):跟踪维的写回(`wo_b` 行范)/读取(`wq_a` 列范)响度 ρ + 随机通道对照、因果配对的滞后相关(δ=±2,含共享/路由专家 `w2` 画像)、累积写回衰减扫描,输出 `gain_equalization.json` + 四联图 |
 | `analyze_cosine_dist.py` | 行向量两两余弦分布(采样 8192 行):embed×embed、lm_head×lm_head、跨表异 token 对照,叠加 N(0,1/d) 理论曲线,输出 `cosine_dist.{json,npz}` + 双联图 |
+| `engram_hash_demo.py` | Engram n-gram 哈希查表全过程演示(对照 `inference/engram.py`,纯 numpy,不读权重):质数桶分配、奇数乘子滚动 XOR、24 路行号生成 |
 
 前置条件:已在仓库根目录执行 `pip install -e .`(见根目录 README 的快速开始)。
 
